@@ -347,7 +347,7 @@ function itemRow(it){
       <div class="ri-meta">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · ${esc(it.condition)} · ${esc(langName(it.lang))}${it.qty>1?` · <b>×${it.qty}</b>`:''}
         · <span class="money">${eur(it.price)}</span>${it.qty>1&&it.price!=null?` <span class="muted">(${eur(it.price*it.qty)})</span>`:''}</div></div>
     <div class="ri-loc">${locHtml(it)}</div>
-    <div class="ri-act">${it.kind==='binder'&&it.slot!=null?`<button class="btn sm" data-show="${it.storage_id}:${it.slot}">Show</button>`:`<button class="btn sm" data-showbox="${it.storage_id}">Open</button>`}
+    <div class="ri-act"><button class="btn sm" data-edit="${it.id}">Edit</button>${it.kind==='binder'&&it.slot!=null?`<button class="btn sm" data-show="${it.storage_id}:${it.slot}">Show</button>`:`<button class="btn sm" data-showbox="${it.storage_id}">Open</button>`}
       <button class="btn sm danger" data-del="${it.id}">Remove${it.qty>1?' 1':''}</button></div>
   </div>`;
 }
@@ -356,6 +356,7 @@ const runFind=debounce(async()=>{
   const q=$('#find-q').value.trim(),el=$('#find-results'),seq=++findSeq;
   try{
     const items=await api('/api/items?q='+encodeURIComponent(q));
+    S.findItems=items;
     if(seq!==findSeq)return;
     el.innerHTML=items.length?(q?'':'<h3 class="sub">Recently added</h3>')+items.map(itemRow).join('')
       :`<div class="empty">${q?'Not found in your collection.':S.storages.length?'No cards yet. Go to Add cards to put your first one away.':'Your collection is empty. Create a binder or box, then add cards.'}</div>`;
@@ -365,6 +366,8 @@ $('#find-q').addEventListener('input',runFind);
 $('#find-results').addEventListener('click',async e=>{
   const s=e.target.closest('[data-show]');
   if(s){const[sid,slot]=s.dataset.show.split(':').map(Number);return showSlot(sid,slot)}
+  const ed=e.target.closest('[data-edit]');
+  if(ed){const it=S.findItems.find(x=>x.id===+ed.dataset.edit);if(it)openBoxItem(it,{id:it.storage_id,name:it.storage_name,kind:it.kind},()=>{runFind();loadStats()});return}
   const b=e.target.closest('[data-showbox]');
   if(b){S.cur={id:+b.dataset.showbox};S.page=1;return setTab('storage')}
   const d=e.target.closest('[data-del]');
@@ -686,9 +689,11 @@ const editCtl=it=>`<div class="opts" style="margin-bottom:6px">
     <label class="chk"><input type="checkbox" id="ed-foil" ${it.foil?'checked':''}> Foil</label>
     <label>Condition<select id="ed-cond">${CONDS.map(x=>`<option ${x===it.condition?'selected':''}>${x}</option>`).join('')}</select></label>
     <label>Language<select id="ed-lang">${LANGS.map(([k,v])=>`<option value="${k}" ${k===it.lang?'selected':''}>${v}</option>`).join('')}</select></label>
+    ${it.kind==='box'&&it.qty>1?`<label>Apply to copies<input type="number" id="ed-qty" min="1" max="${it.qty}" value="${it.qty}"></label>`:''}
     <label style="justify-content:flex-end"><button type="button" class="btn primary" id="ed-save" disabled>Save changes</button></label>
   </div>`;
-function bindEdit(it,st,dlg){
+const reopen=st=>()=>openStorage(st.id,S.page);
+function bindEdit(it,st,dlg,after=reopen(st)){
   const sel=$('#ed-print'),save=$('#ed-save'),img=$('#pocket-body .pocket-dlg>img');let prints=[];
   const dirty=()=>save.disabled=sel.value===it.card_id&&$('#ed-foil').checked===!!it.foil&&$('#ed-cond').value===it.condition&&$('#ed-lang').value===it.lang;
   ['#ed-foil','#ed-cond','#ed-lang'].forEach(q=>$(q).onchange=dirty);
@@ -699,31 +704,32 @@ function bindEdit(it,st,dlg){
     sel.innerHTML=prints.map(c=>`<option value="${esc(c.id)}" ${c.id===it.card_id?'selected':''}>${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.set_name||'')}</option>`).join('');
   }).catch(e=>toast('Could not load printings: '+e.message,'err'));
   save.onclick=async()=>{
-    try{const r=await api(`/api/items/${it.id}/edit`,{method:'POST',body:{card_id:sel.value,foil:$('#ed-foil').checked,condition:$('#ed-cond').value,lang:$('#ed-lang').value}});
-      dlg.close();toast('Saved');showMoves(r.moves);if(st.kind==='binder'&&r.item.slot!=null)S.highlight=r.item.slot;openStorage(st.id,S.page)}
+    const q=$('#ed-qty'),qty=q?Math.max(1,Math.min(it.qty,+q.value||it.qty)):undefined;
+    try{const r=await api(`/api/items/${it.id}/edit`,{method:'POST',body:{card_id:sel.value,foil:$('#ed-foil').checked,condition:$('#ed-cond').value,lang:$('#ed-lang').value,qty}});
+      dlg.close();toast(qty&&qty<it.qty?`Saved for ${qty} of ${it.qty} copies`:'Saved');showMoves(r.moves);if(st.kind==='binder'&&r.item.slot!=null)S.highlight=r.item.slot;loadStats();after()}
     catch(e){toast(e.message,'err')}};
 }
 const moveCtl=()=>`<div class="other"><select id="mv-to"><option value="">Loading…</option></select><button class="btn" id="mv-go" disabled>Move</button></div>`;
-function bindMove(it,st,dlg){
+function bindMove(it,st,dlg,after=reopen(st)){
   const sel=$('#mv-to'),go=$('#mv-go');
   refreshStorages().then(l=>{const o=l.filter(x=>x.id!==st.id);
     sel.innerHTML=o.length?o.map(x=>`<option value="${x.id}">${esc(x.name)} (${x.kind})</option>`).join(''):'<option value="">No other binder or box yet</option>';
     go.disabled=!o.length}).catch(e=>toast(e.message,'err'));
   go.onclick=async()=>{const to=sel.value;if(!to)return;
-    try{const r=await api('/api/items/'+it.id,{method:'PUT',body:{storage_id:+to,slot:'auto'}});dlg.close();toast('Move it to: '+r.item.location);loadStats();openStorage(st.id,S.page)}
+    try{const r=await api('/api/items/'+it.id,{method:'PUT',body:{storage_id:+to,slot:'auto'}});dlg.close();toast('Move it to: '+r.item.location);loadStats();after()}
     catch(e){toast(e.message,'err')}};
 }
-function openBoxItem(it){
-  const st=S.cur,body=$('#pocket-body'),dlg=$('#dlg-pocket');
+function openBoxItem(it,st=S.cur,after){
+  const body=$('#pocket-body'),dlg=$('#dlg-pocket');
   body.innerHTML=`<div class="pocket-dlg"><img src="${esc(it.image_large||it.image)}" alt="">
     <div><h3>${esc(it.name)} ${it.foil?'<span class="badge foil">Foil</span>':''}</h3>
     <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))} · <span class="money">${eur(it.price)}</span></div>
-    <p><b>${esc(st.name)} — ${esc(it.section||'No section')}${it.qty>1?` · ×${it.qty}`:''}</b></p>
-    ${it.qty>1?'<p class="muted small">Moving to a box takes the whole stack; moving to a binder takes one copy.</p>':''}
-    ${editCtl(it)}${it.qty>1?`<p class="muted small" style="margin:4px 0 0">Changes apply to all ${it.qty} copies.</p>`:''}
+    <p><b>${esc(it.location)}${it.qty>1?` · ×${it.qty}`:''}</b></p>
+    ${editCtl(it)}
+    ${it.qty>1?'<p class="muted small" style="margin:4px 0 0">Moving to a box takes the whole stack; moving to a binder takes one copy.</p>':''}
     <h3 class="sub" style="margin-top:14px">Move to</h3>${moveCtl()}</div></div>
     <div class="dlg-foot">${cmBtn(it)}<button class="btn" id="pk-close">Close</button></div>`;
-  bindMove(it,st,dlg);bindEdit(it,st,dlg);
+  bindMove(it,st,dlg,after);bindEdit(it,st,dlg,after);
   $('#pk-close').onclick=()=>dlg.close();
   dlg.showModal();
 }
@@ -734,9 +740,9 @@ async function loadBox(){
   let html='<div class="box-list">',sec=null;
   for(const it of items){
     if(it.section!==sec){sec=it.section;html+=`<div class="sec">${esc(sec||'No section')}</div>`}
-    html+=`<div class="box-row"><img src="${esc(it.image)}" alt="" loading="lazy">
+    html+=`<div class="box-row"><img src="${esc(it.image)}" alt="" loading="lazy" data-item="${it.id}" style="cursor:pointer">
       <div><b>${esc(it.name)}</b> ${it.foil?'<span class="badge foil">Foil</span>':''}<div class="muted small">${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · ${esc(it.condition)} · ${esc(langName(it.lang))}</div></div>
-      <span class="money small">${eur(it.price==null?null:it.price*it.qty)}</span><b>×${it.qty}</b><button class="btn sm" data-item="${it.id}">Move</button><button class="btn sm danger" data-del="${it.id}">−1</button></div>`;
+      <span class="money small">${eur(it.price==null?null:it.price*it.qty)}</span><b>×${it.qty}</b><button class="btn sm" data-item="${it.id}">Edit</button><button class="btn sm danger" data-del="${it.id}">−1</button></div>`;
   }
   $('#st-content').innerHTML=html+'</div>';
   $$('#st-content [data-item]').forEach(b=>b.onclick=()=>openBoxItem(items.find(x=>x.id===+b.dataset.item)));

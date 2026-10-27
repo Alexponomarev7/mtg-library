@@ -1014,12 +1014,30 @@ def r_item_edit(db, q, b, iid):
     section = it["section"]
     if st["kind"] == "box" and card["set_code"] != old["set_code"] and section in (old["set_name"], old["set_code"].upper()):
         section = card["set_name"] or card["set_code"].upper()  # follow the set's box section
+    foil, cond, lang = 1 if b.get("foil", it["foil"]) else 0, b.get("condition") or it["condition"], b.get("lang") or it["lang"]
+    iid = it["id"]
+    if st["kind"] == "box":
+        n = as_int(b.get("qty"), "Copies", 1, it["qty"], default=it["qty"])
+        same = db.execute("""SELECT id FROM items WHERE storage_id=? AND card_id=? AND foil=? AND condition=? AND lang=?
+                             AND COALESCE(section,'')=COALESCE(?,'') AND id<>?""",
+                          (st["id"], card["id"], foil, cond, lang, section, iid)).fetchone()
+        if same:  # an identical stack is already in the box: add the changed copies to it
+            db.execute("UPDATE items SET qty=qty+? WHERE id=?", (n, same[0]))
+            if n < it["qty"]:
+                db.execute("UPDATE items SET qty=qty-? WHERE id=?", (n, iid))
+            else:
+                db.execute("DELETE FROM items WHERE id=?", (iid,))
+            return {"item": item_view(db, same[0]), "moves": []}
+        if n < it["qty"]:  # change only some copies: split them off into their own stack
+            db.execute("UPDATE items SET qty=qty-? WHERE id=?", (n, iid))
+            iid = db.execute("INSERT INTO items(card_id,storage_id,section,foil,condition,lang,qty) VALUES(?,?,?,?,?,?,?)",
+                             (card["id"], st["id"], section, foil, cond, lang, n)).lastrowid
+            return {"item": item_view(db, iid), "moves": []}
     db.execute("UPDATE items SET card_id=?, foil=?, condition=?, lang=?, section=? WHERE id=?",
-               (card["id"], 1 if b.get("foil", it["foil"]) else 0, b.get("condition") or it["condition"],
-                b.get("lang") or it["lang"], section, it["id"]))
+               (card["id"], foil, cond, lang, section, iid))
     # a different printing may belong in a different pocket of a set-order binder
     moves = relayout(db, st) if card["id"] != old["id"] else []
-    return {"item": item_view(db, it["id"]), "moves": moves}
+    return {"item": item_view(db, iid), "moves": moves}
 
 
 @route("DELETE", r"/api/items/(\d+)")
