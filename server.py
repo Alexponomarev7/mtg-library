@@ -30,6 +30,9 @@ DB_PATH = os.environ.get("CARDLIB_DB", os.path.join(HERE, "library.db"))
 PORT = int(os.environ.get("CARDLIB_PORT", "8765"))
 STATIC = os.path.join(HERE, "static")
 SCRYFALL = "https://api.scryfall.com"
+# Cardmarket's public daily price guide for Magic (all products, trend/avg/low, foil and non-foil)
+CM_PRICE_GUIDE = "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_1.json"
+PRICE_MAX_AGE = 20 * 3600  # refresh prices at start-up when older than this
 UA = "CardLibraryLocal/1.0 (personal collection tool)"
 
 SCHEMA = """
@@ -38,7 +41,8 @@ CREATE TABLE IF NOT EXISTS sets(
   printed_size INT, set_type TEXT, icon TEXT, cards_loaded INT DEFAULT 0);
 CREATE TABLE IF NOT EXISTS cards(
   id TEXT PRIMARY KEY, name TEXT, set_code TEXT, collector_number TEXT,
-  rarity TEXT, type_line TEXT, image TEXT, image_large TEXT, booster INT);
+  rarity TEXT, type_line TEXT, image TEXT, image_large TEXT, booster INT,
+  cardmarket_id INT, eur REAL, eur_foil REAL);
 CREATE INDEX IF NOT EXISTS idx_cards_set ON cards(set_code);
 CREATE INDEX IF NOT EXISTS idx_cards_name ON cards(name);
 CREATE TABLE IF NOT EXISTS storages(
@@ -58,6 +62,9 @@ CREATE TABLE IF NOT EXISTS items(
   qty INT DEFAULT 1, added_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE INDEX IF NOT EXISTS idx_items_storage ON items(storage_id);
 CREATE INDEX IF NOT EXISTS idx_items_card ON items(card_id);
+CREATE TABLE IF NOT EXISTS cm_prices(
+  id_product INTEGER PRIMARY KEY, trend REAL, trend_foil REAL, avg REAL, avg_foil REAL, low REAL, low_foil REAL);
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 """
 
 
@@ -85,6 +92,10 @@ def init_db():
         db.execute("UPDATE sets SET cards_loaded=0")
     if "one_per_card" not in {r[1] for r in db.execute("PRAGMA table_info(storage_sets)")}:
         db.execute("ALTER TABLE storage_sets ADD COLUMN one_per_card INT DEFAULT 0")
+    cols = {r[1] for r in db.execute("PRAGMA table_info(cards)")}
+    for col, typ in (("cardmarket_id", "INT"), ("eur", "REAL"), ("eur_foil", "REAL")):
+        if col not in cols:
+            db.execute(f"ALTER TABLE cards ADD COLUMN {col} {typ}")
     db.commit()
     db.close()
 
@@ -123,11 +134,97 @@ def card_row(c):
     return (c["id"], c["name"], c["set"], c["collector_number"], c.get("rarity"),
             c.get("type_line") or faces[0].get("type_line"),
             img.get("small") or img.get("normal"), img.get("normal") or img.get("large"),
-            None if c.get("booster") is None else int(c["booster"]))
+            None if c.get("booster") is None else int(c["booster"]),
+            c.get("cardmarket_id"), _num((c.get("prices") or {}).get("eur")),
+            _num((c.get("prices") or {}).get("eur_foil")))
+
+
+def _num(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+CARD_COLS = ("id,name,set_code,collector_number,rarity,type_line,image,image_large,booster,"
+             "cardmarket_id,eur,eur_foil")
 
 
 def save_cards(db, cards):
-    db.executemany("INSERT OR REPLACE INTO cards VALUES(?,?,?,?,?,?,?,?,?)", [card_row(c) for c in cards])
+    db.executemany(f"INSERT OR REPLACE INTO cards({CARD_COLS}) VALUES({','.join('?' * 12)})",
+                   [card_row(c) for c in cards])
+
+
+# ---------------------------------------------------------------- prices
+
+# Price of one copy in EUR: Cardmarket trend (foil trend for foils), falling back to their average and
+# low price, then to Scryfall's EUR price (which also comes from Cardmarket).
+def price_sql(foil, c="c", p="p"):
+    return (f"(CASE WHEN {foil} THEN COALESCE({p}.trend_foil,{p}.avg_foil,{p}.low_foil,{c}.eur_foil) "
+            f"ELSE COALESCE({p}.trend,{p}.avg,{p}.low,{c}.eur) END)")
+
+
+_price_lock = threading.Lock()
+
+
+def get_meta(db, key):
+    r = db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return r[0] if r else None
+
+
+def refresh_prices(force=False):
+    """Download Cardmarket's price guide into cm_prices, then fill in Cardmarket ids for owned cards
+    saved before prices existed. Runs at start-up (in a thread) and from the Update prices button."""
+    with _price_lock:
+        db = connect()
+        try:
+            last = float(get_meta(db, "prices_fetched") or 0)
+            if force or time.time() - last > PRICE_MAX_AGE:
+                req = urllib.request.Request(CM_PRICE_GUIDE, headers={"User-Agent": UA})
+                try:
+                    with urllib.request.urlopen(req, timeout=120) as r:
+                        data = json.load(r)
+                except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+                    raise ApiError(502, "Can't download Cardmarket prices - check the internet connection.")
+                rows = [(g["idProduct"], g.get("trend"), g.get("trend-foil"), g.get("avg"), g.get("avg-foil"),
+                         g.get("low"), g.get("low-foil")) for g in data.get("priceGuides", [])]
+                if rows:
+                    db.execute("DELETE FROM cm_prices")
+                    db.executemany("INSERT OR REPLACE INTO cm_prices VALUES(?,?,?,?,?,?,?)", rows)
+                    db.execute("INSERT OR REPLACE INTO meta VALUES('prices_date',?)", (data.get("createdAt"),))
+                    db.execute("INSERT OR REPLACE INTO meta VALUES('prices_fetched',?)", (str(time.time()),))
+                    db.commit()
+            # owned cards without a Cardmarket id (saved by an older version): ask Scryfall, 75 at a time
+            ids = [r[0] for r in db.execute(
+                "SELECT DISTINCT c.id FROM cards c JOIN items i ON i.card_id=c.id WHERE c.cardmarket_id IS NULL "
+                "AND c.eur IS NULL")]
+            for k in range(0, len(ids), 75):
+                with _sf_lock:
+                    time.sleep(0.11)
+                body = json.dumps({"identifiers": [{"id": x} for x in ids[k:k + 75]]}).encode()
+                req = urllib.request.Request(SCRYFALL + "/cards/collection", data=body, headers={
+                    "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json"})
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as r:
+                        save_cards(db, json.load(r).get("data", []))
+                    db.commit()
+                except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+                    break
+            # binder sets whose card lists were saved before prices existed: reload them once
+            for (code,) in db.execute(
+                    "SELECT c.set_code FROM cards c WHERE c.set_code IN (SELECT set_code FROM storage_sets) "
+                    "GROUP BY c.set_code HAVING SUM(c.cardmarket_id IS NULL) * 2 > COUNT(*)").fetchall():
+                try:
+                    ensure_set_cards(db, code, force=True)
+                    db.commit()
+                except ApiError:
+                    break
+        finally:
+            db.close()
+
+
+def prices_info(db):
+    return {"date": get_meta(db, "prices_date"), "source": "Cardmarket trend"}
 
 
 def ensure_sets(db, force=False):
@@ -381,6 +478,7 @@ def storage_summary(db, st, detail=False):
         (st["id"],))]
     st["count"] = box_count(db, st["id"])
     st["capacity_total"] = capacity(st)
+    st["value"] = round(db.execute(VALUE_SQL + " WHERE i.storage_id=?", (st["id"],)).fetchone()[0], 2)
     if st["kind"] == "binder":
         st["page_count"] = page_count(st)
         cap, pp = capacity(st), per_page(st)
@@ -407,9 +505,15 @@ def storage_summary(db, st, detail=False):
 
 
 ITEM_SQL = """SELECT i.*, c.name, c.set_code, c.collector_number, c.rarity, c.image, c.image_large, c.type_line,
-  s.name AS set_name, st.name AS storage_name, st.kind, st.rows, st.cols, st.sheets, st.double_sided, st.color
+  c.cardmarket_id,
+  s.name AS set_name, st.name AS storage_name, st.kind, st.rows, st.cols, st.sheets, st.double_sided, st.color,
+  """ + price_sql("i.foil") + """ AS price
   FROM items i JOIN cards c ON c.id=i.card_id LEFT JOIN sets s ON s.code=c.set_code
+  LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id
   JOIN storages st ON st.id=i.storage_id"""
+
+VALUE_SQL = ("SELECT COALESCE(SUM(i.qty * " + price_sql("i.foil") + "),0) FROM items i JOIN cards c ON c.id=i.card_id "
+             "LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id")
 
 
 def item_dict(r):
@@ -427,8 +531,9 @@ def item_view(db, iid):
 
 
 def card_view(db, cid):
-    r = db.execute("SELECT c.*, s.name AS set_name FROM cards c LEFT JOIN sets s ON s.code=c.set_code WHERE c.id=?",
-                   (cid,)).fetchone()
+    r = db.execute(f"""SELECT c.*, s.name AS set_name, {price_sql(0)} AS price, {price_sql(1)} AS price_foil
+                       FROM cards c LEFT JOIN sets s ON s.code=c.set_code
+                       LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.id=?""", (cid,)).fetchone()
     if not r:
         raise ApiError(404, "Unknown card - search for it first")
     return dict(r)
@@ -493,7 +598,14 @@ def as_int(v, name, lo=None, hi=None, default=None):
 def r_stats(db, q, b):
     return {"cards": db.execute("SELECT COALESCE(SUM(qty),0) FROM items").fetchone()[0],
             "unique": db.execute("SELECT COUNT(DISTINCT card_id) FROM items").fetchone()[0],
-            "storages": db.execute("SELECT COUNT(*) FROM storages").fetchone()[0]}
+            "storages": db.execute("SELECT COUNT(*) FROM storages").fetchone()[0],
+            "value": round(db.execute(VALUE_SQL).fetchone()[0], 2), "prices": prices_info(db)}
+
+
+@route("POST", "/api/prices/refresh")
+def r_prices_refresh(db, q, b):
+    refresh_prices(force=True)
+    return {"ok": True, "prices": prices_info(db), "value": round(db.execute(VALUE_SQL).fetchone()[0], 2)}
 
 
 @route("GET", "/api/sets")
@@ -728,7 +840,8 @@ def r_page(db, q, b, sid):
     exp = {}
     if exp_ids:
         exp = {r["id"]: dict(r) for r in db.execute(
-            f"SELECT c.*, s.name AS set_name FROM cards c LEFT JOIN sets s ON s.code=c.set_code "
+            f"SELECT c.*, s.name AS set_name, {price_sql(0)} AS price, {price_sql(1)} AS price_foil "
+            f"FROM cards c LEFT JOIN sets s ON s.code=c.set_code LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id "
             f"WHERE c.id IN ({','.join('?' * len(exp_ids))})", exp_ids)}
     slots = []
     for s in range(start, start + pp):
@@ -897,13 +1010,14 @@ def r_export(db, q, b):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["name", "set", "collector_number", "foil", "condition", "language", "quantity", "storage",
-                "page", "row", "column", "section", "scryfall_id"])
+                "page", "row", "column", "section", "price_eur", "scryfall_id"])
     for r in db.execute(ITEM_SQL + " ORDER BY st.name, i.slot, c.name"):
         d = item_dict(r)
         l = d["loc"] or {}
         w.writerow([d["name"], d["set_code"].upper(), d["collector_number"], "yes" if d["foil"] else "",
                     d["condition"], d["lang"], d["qty"], d["storage_name"], l.get("page", ""), l.get("row", ""),
-                    l.get("col", ""), d["section"] or "", d["card_id"]])
+                    l.get("col", ""), d["section"] or "",
+                    "" if d["price"] is None else f'{d["price"]:.2f}', d["card_id"]])
     return ("raw", buf.getvalue().encode("utf-8-sig"), "text/csv; charset=utf-8",
             {"Content-Disposition": 'attachment; filename="card-library.csv"'})
 
@@ -988,6 +1102,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     init_db()
+
+    def bg_prices():
+        try:
+            refresh_prices()
+        except ApiError as e:
+            print("Prices:", e.msg)
+    threading.Thread(target=bg_prices, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://127.0.0.1:{PORT}"
     print(f"Card Library is running at {url}   (press Ctrl+C to stop)")

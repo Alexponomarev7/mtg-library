@@ -140,11 +140,14 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .pocket.expect img{opacity:var(--ghost);filter:grayscale(1)}
 .pocket.expect:hover img{opacity:.6}
 .exp-label{position:absolute;left:0;right:0;bottom:0;padding:16px 6px 6px;font-size:11.5px;font-weight:600;background:linear-gradient(transparent,var(--panel) 60%);color:var(--ink);text-align:left;line-height:1.2}
+.price-chip{position:absolute;left:5px;bottom:5px;background:rgba(0,0,0,.72);color:#fff;font-size:11px;font-weight:700;padding:1px 5px;border-radius:4px;font-variant-numeric:tabular-nums}
+.price-chip.ghost{top:5px;bottom:auto;left:auto;right:5px;opacity:.85}
+.money{font-variant-numeric:tabular-nums;font-weight:650}
 .foil-dot{position:absolute;top:5px;right:5px;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#f3d27a,#b7e3f0,#e6b7f0);font-size:10px;font-weight:800;color:#222;display:grid;place-items:center}
 .pocket.hl{outline:3px solid var(--accent);outline-offset:2px;animation:pulse 1.2s ease-in-out 3}
 @keyframes pulse{50%{outline-color:transparent}}
 .box-list .sec{margin:14px 0 6px;font-weight:700}
-.box-row{display:grid;grid-template-columns:36px 1fr auto auto auto;gap:10px;align-items:center;padding:6px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:5px}
+.box-row{display:grid;grid-template-columns:36px 1fr auto auto auto auto;gap:10px;align-items:center;padding:6px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:5px}
 .box-row img{width:36px;aspect-ratio:63/88;border-radius:3px;object-fit:cover}
 /* dialogs */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
@@ -213,7 +216,8 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
       <div class="toolbar">
         <button class="btn primary" data-new="binder">+ New binder</button>
         <button class="btn" data-new="box">+ New box</button>
-        <button class="btn" id="refresh-sets" style="margin-left:auto">Refresh set list</button>
+        <button class="btn" id="refresh-prices" style="margin-left:auto">Update prices</button>
+        <button class="btn" id="refresh-sets">Refresh set list</button>
       </div>
       <div id="storage-list" class="st-grid"></div>
     </div>
@@ -241,6 +245,10 @@ function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>f
 let toastT;
 function toast(msg,kind){const t=$('#toast');t.textContent=msg;t.className='show '+(kind||'');clearTimeout(toastT);toastT=setTimeout(()=>t.className='',kind==='err'?4500:2200)}
 const LANGS=[['en','English'],['nl','Dutch'],['ru','Russian'],['de','German'],['fr','French'],['it','Italian'],['es','Spanish'],['pt','Portuguese'],['ja','Japanese'],['ko','Korean'],['zhs','Chinese (S)'],['zht','Chinese (T)']];
+const cmUrl=c=>c.cardmarket_id?`https://www.cardmarket.com/en/Magic/Products?idProduct=${c.cardmarket_id}`
+  :`https://www.cardmarket.com/en/Magic/Products/Search?searchString=${encodeURIComponent(c.name)}`;
+const cmBtn=c=>`<a class="btn" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="Open this printing on Cardmarket">Cardmarket ↗</a>`;
+const eur=v=>v==null?'—':'€'+Number(v).toFixed(2);
 const LANG_NAME=Object.fromEntries(LANGS);
 const langName=k=>LANG_NAME[k]||k;
 const CONDS=['NM','LP','MP','HP','DMG'];
@@ -267,7 +275,9 @@ function setTab(t){
 }
 $$('.tab').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='storage'&&S.tab==='storage'){S.cur=null}setTab(b.dataset.tab)});
 async function loadStats(){
-  try{const s=await api('/api/stats');$('#stats').textContent=`${s.cards} cards · ${s.unique} unique · ${s.storages} places`}catch(e){}
+  try{const s=await api('/api/stats'),el=$('#stats');S.prices=s.prices;
+    el.innerHTML=`${s.cards} cards · ${s.unique} unique · ${s.storages} places · <b class="money" style="color:var(--ink)">${eur(s.value)}</b>`;
+    el.title=s.prices.date?`Prices: ${s.prices.source}, ${s.prices.date.slice(0,10)}`:'Prices not downloaded yet'}catch(e){}
 }
 
 /* ------------------------------------------------------------ find */
@@ -282,7 +292,8 @@ function itemRow(it){
   return `<div class="row-item">
     <img class="thumb" src="${esc(it.image)}" loading="lazy" alt="">
     <div><div class="ri-name">${esc(it.name)} ${it.foil?'<span class="badge foil">Foil</span>':''}</div>
-      <div class="ri-meta">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · ${esc(it.condition)} · ${esc(langName(it.lang))}${it.qty>1?` · <b>×${it.qty}</b>`:''}</div></div>
+      <div class="ri-meta">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · ${esc(it.condition)} · ${esc(langName(it.lang))}${it.qty>1?` · <b>×${it.qty}</b>`:''}
+        · <span class="money">${eur(it.price)}</span>${it.qty>1&&it.price!=null?` <span class="muted">(${eur(it.price*it.qty)})</span>`:''}</div></div>
     <div class="ri-loc">${locHtml(it)}</div>
     <div class="ri-act">${it.kind==='binder'&&it.slot!=null?`<button class="btn sm" data-show="${it.storage_id}:${it.slot}">Show</button>`:`<button class="btn sm" data-showbox="${it.storage_id}">Open</button>`}
       <button class="btn sm danger" data-del="${it.id}">Remove${it.qty>1?' 1':''}</button></div>
@@ -325,7 +336,7 @@ async function runAddSearch(){
     S.results=cards;
     el.innerHTML=cards.length?`<h3 class="sub">${cards.length} printing${cards.length>1?'s':''} — pick the one you hold</h3><div class="print-grid">${cards.map((c,i)=>
       `<button class="print" data-i="${i}" title="${esc(c.name)}"><img src="${esc(c.image)}" loading="lazy" alt="${esc(c.name)}">
-       <span class="p-meta"><b>${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}</b><br>${esc(c.set_name||'')}</span>
+       <span class="p-meta"><b>${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}</b> · <span class="money">${eur(c.price??c.price_foil)}</span><br>${esc(c.set_name||'')}</span>
        ${c.owned?`<span class="owned">own ${c.owned}</span>`:''}</button>`).join('')}</div>`
       :'<div class="empty">No cards found.</div>';
     if(cards.length===1)selectPrinting(0);
@@ -361,7 +372,9 @@ function renderAddPanel(r,placed){
     <div class="ap-head"><img src="${esc(c.image_large||c.image)}" alt="">
       <div><div style="font-weight:700;font-size:16px">${esc(c.name)}</div>
       <div class="muted small">${esc(c.set_name||'')}<br>${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.rarity||'')}</div>
-      <div class="muted small" style="margin-top:6px">${esc(c.type_line||'')}</div></div></div>
+      <div class="muted small" style="margin-top:6px">${esc(c.type_line||'')}</div>
+      <div class="small" style="margin-top:6px"><span class="money">${eur(c.price)}</span> <span class="muted">· foil ${eur(c.price_foil)}</span>
+        · <a href="${esc(cmUrl(c))}" target="_blank" rel="noopener" style="color:var(--accent)">Cardmarket ↗</a></div></div></div>
     <div class="opts">
       <label class="chk"><input type="checkbox" id="o-foil" ${o.foil?'checked':''}> Foil</label>
       <label>Copies <small>(boxes)</small><input type="number" id="o-qty" min="1" value="${o.qty}"></label>
@@ -409,12 +422,15 @@ async function loadStorages(){
       <div style="display:flex;justify-content:space-between"><span class="st-name">${esc(s.name)}</span><span class="tag">${s.kind}</span></div>
       <div class="muted small">${s.kind==='binder'?`${s.page_count} pages · ${s.rows}×${s.cols} pockets · ${s.mode==='set_order'?'set order':'fill in order'}`:(s.capacity?`holds ${s.capacity}`:'no size limit')}</div>
       <div class="chips">${s.sets.length?s.sets.map(x=>`<span class="chip" title="${esc(x.name||'')}">${esc(x.set_code)}</span>`).join(''):'<span class="muted small">any set (general)</span>'}</div>
-      <div class="small"><b>${s.count}</b>${cap?` / ${cap}`:''} cards</div>${cap?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}
+      <div class="small" style="display:flex;justify-content:space-between"><span><b>${s.count}</b>${cap?` / ${cap}`:''} cards</span><span class="money">${eur(s.value)}</span></div>${cap?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}
       ${s.space&&s.mode==='set_order'?`<div class="muted small" style="margin-top:6px">${s.space.reserved} reserved by sets · ${s.space.free} pockets unreserved</div>`:''}
     </div>`}).join('');
 }
 $('#storage-list').addEventListener('click',e=>{const c=e.target.closest('[data-open]');if(c)openStorage(+c.dataset.open,1)});
 $$('[data-new]').forEach(b=>b.onclick=()=>storageForm(b.dataset.new));
+$('#refresh-prices').onclick=async()=>{toast('Downloading Cardmarket prices…');
+  try{const r=await api('/api/prices/refresh',{method:'POST'});toast(`Prices updated (${(r.prices.date||'').slice(0,10)}) · collection ${eur(r.value)}`);loadStats();loadStorages()}
+  catch(e){toast(e.message,'err')}};
 $('#refresh-sets').onclick=async()=>{toast('Refreshing sets from Scryfall…');try{const r=await api('/api/sets/refresh',{method:'POST'});toast(`Set list updated (${r.sets} sets)`)}catch(e){toast(e.message,'err')}};
 
 function storageForm(kind,st){
@@ -472,7 +488,7 @@ async function openStorage(id,page=1){
     <div class="detail-head">
       <button class="btn" id="back">← All</button>
       <div style="flex:1;min-width:200px"><h2 style="display:flex;gap:8px;align-items:center">${dot(st.color)}${esc(st.name)}</h2>
-        <div class="muted small">${st.kind==='binder'?`${st.page_count} pages (${st.sheets} sheets${st.double_sided?', both sides':''}) · ${st.rows}×${st.cols} pockets · ${st.mode==='set_order'?'set order':'fill in order'} · `:''}${st.count}${cap?` / ${cap}`:''} cards${st.notes?' · '+esc(st.notes):''}</div></div>
+        <div class="muted small">${st.kind==='binder'?`${st.page_count} pages (${st.sheets} sheets${st.double_sided?', both sides':''}) · ${st.rows}×${st.cols} pockets · ${st.mode==='set_order'?'set order':'fill in order'} · `:''}${st.count}${cap?` / ${cap}`:''} cards · <b class="money" style="color:var(--ink)">${eur(st.value)}</b>${st.notes?' · '+esc(st.notes):''}</div></div>
       <button class="btn" id="edit">Edit</button><button class="btn danger" id="del">Delete</button>
     </div>
     <div class="detail-grid">
@@ -568,8 +584,8 @@ async function loadPage(n){
     </div>
     <div class="binder-page" style="grid-template-columns:repeat(${st.cols},minmax(0,1fr))">
       ${r.slots.map(s=>{const h=s.slot===hl?'hl':'';
-        if(s.item)return `<button class="pocket ${h}" data-slot="${s.slot}" title="${esc(s.item.name)} — R${s.row} C${s.col}"><img src="${esc(s.item.image_large||s.item.image)}" alt="${esc(s.item.name)}" loading="lazy">${s.item.foil?'<span class="foil-dot">F</span>':''}</button>`;
-        if(s.expected)return `<button class="pocket expect ${h}" data-slot="${s.slot}" title="Missing: ${esc(s.expected.name)}"><img src="${esc(s.expected.image_large||s.expected.image)}" alt="" loading="lazy"><span class="exp-label">#${esc(s.expected.collector_number)} ${esc(s.expected.name)}</span></button>`;
+        if(s.item)return `<button class="pocket ${h}" data-slot="${s.slot}" title="${esc(s.item.name)} — R${s.row} C${s.col}"><img src="${esc(s.item.image_large||s.item.image)}" alt="${esc(s.item.name)}" loading="lazy">${s.item.foil?'<span class="foil-dot">F</span>':''}${s.item.price!=null?`<span class="price-chip">${eur(s.item.price)}</span>`:''}</button>`;
+        if(s.expected)return `<button class="pocket expect ${h}" data-slot="${s.slot}" title="Missing: ${esc(s.expected.name)}"><img src="${esc(s.expected.image_large||s.expected.image)}" alt="" loading="lazy"><span class="exp-label">#${esc(s.expected.collector_number)} ${esc(s.expected.name)}</span>${(s.expected.price??s.expected.price_foil)!=null?`<span class="price-chip ghost">${eur(s.expected.price??s.expected.price_foil)}</span>`:''}</button>`;
         return `<div class="pocket empty ${h}"><span>R${s.row} · C${s.col}</span></div>`}).join('')}
     </div>
     <p class="muted small">Tip: use ← → keys to flip pages.</p>`;
@@ -591,22 +607,23 @@ function openPocket(slot){
   if(s.item){const it=s.item;
     body.innerHTML=`<div class="pocket-dlg"><img src="${esc(it.image_large||it.image)}" alt="">
       <div><h3>${esc(it.name)} ${it.foil?'<span class="badge foil">Foil</span>':''}</h3>
-      <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))}</div>
+      <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))} · <span class="money">${eur(it.price)}</span></div>
       <p><b>${where}</b></p>
       ${s.expected&&s.expected.name!==it.name?'<div class="notes">This pocket is reserved for '+esc(s.expected.name)+'.</div>':''}
       ${editCtl(it)}
       <h3 class="sub" style="margin-top:14px">Move to</h3>${moveCtl()}
       </div></div>
-      <div class="dlg-foot"><button class="btn danger" id="pk-del">Remove from collection</button><button class="btn" id="pk-close">Close</button></div>`;
+      <div class="dlg-foot"><button class="btn danger" id="pk-del" style="margin-right:auto">Remove from collection</button>${cmBtn(it)}<button class="btn" id="pk-close">Close</button></div>`;
     $('#pk-del').onclick=async()=>{try{await api('/api/items/'+it.id,{method:'DELETE'});dlg.close();toast('Removed');loadStats();openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
     bindMove(it,st,dlg);bindEdit(it,st,dlg);
   }else{const c=s.expected;
     body.innerHTML=`<div class="pocket-dlg"><img src="${esc(c.image_large||c.image)}" alt="">
       <div><h3>${esc(c.name)}</h3><div class="muted small">${esc(c.set_name||'')} · ${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.rarity||'')}</div>
       <p>Not in your collection yet.<br><b>${where}</b></p>
+      <p class="small"><span class="money">${eur(c.price)}</span> <span class="muted">· foil ${eur(c.price_foil)}</span></p>
       <div class="opts"><label class="chk"><input type="checkbox" id="pk-foil"> Foil</label>
       <label>Condition<select id="pk-cond">${CONDS.map(x=>`<option>${x}</option>`).join('')}</select></label></div></div></div>
-      <div class="dlg-foot"><button class="btn" id="pk-close">Cancel</button><button class="btn primary" id="pk-add">Add to this pocket</button></div>`;
+      <div class="dlg-foot">${cmBtn(c)}<button class="btn" id="pk-close">Cancel</button><button class="btn primary" id="pk-add">Add to this pocket</button></div>`;
     $('#pk-add').onclick=async()=>{try{await api('/api/items',{method:'POST',body:{card_id:c.id,storage_id:st.id,slot,foil:$('#pk-foil').checked,condition:$('#pk-cond').value,lang:S.opt.lang}});dlg.close();toast('Added');loadStats();S.highlight=slot;openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
   }
   $('#pk-close').onclick=()=>dlg.close();
@@ -648,12 +665,12 @@ function openBoxItem(it){
   const st=S.cur,body=$('#pocket-body'),dlg=$('#dlg-pocket');
   body.innerHTML=`<div class="pocket-dlg"><img src="${esc(it.image_large||it.image)}" alt="">
     <div><h3>${esc(it.name)} ${it.foil?'<span class="badge foil">Foil</span>':''}</h3>
-    <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))}</div>
+    <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))} · <span class="money">${eur(it.price)}</span></div>
     <p><b>${esc(st.name)} — ${esc(it.section||'No section')}${it.qty>1?` · ×${it.qty}`:''}</b></p>
     ${it.qty>1?'<p class="muted small">Moving to a box takes the whole stack; moving to a binder takes one copy.</p>':''}
     ${editCtl(it)}${it.qty>1?`<p class="muted small" style="margin:4px 0 0">Changes apply to all ${it.qty} copies.</p>`:''}
     <h3 class="sub" style="margin-top:14px">Move to</h3>${moveCtl()}</div></div>
-    <div class="dlg-foot"><button class="btn" id="pk-close">Close</button></div>`;
+    <div class="dlg-foot">${cmBtn(it)}<button class="btn" id="pk-close">Close</button></div>`;
   bindMove(it,st,dlg);bindEdit(it,st,dlg);
   $('#pk-close').onclick=()=>dlg.close();
   dlg.showModal();
@@ -667,7 +684,7 @@ async function loadBox(){
     if(it.section!==sec){sec=it.section;html+=`<div class="sec">${esc(sec||'No section')}</div>`}
     html+=`<div class="box-row"><img src="${esc(it.image)}" alt="" loading="lazy">
       <div><b>${esc(it.name)}</b> ${it.foil?'<span class="badge foil">Foil</span>':''}<div class="muted small">${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · ${esc(it.condition)} · ${esc(langName(it.lang))}</div></div>
-      <b>×${it.qty}</b><button class="btn sm" data-item="${it.id}">Move</button><button class="btn sm danger" data-del="${it.id}">−1</button></div>`;
+      <span class="money small">${eur(it.price==null?null:it.price*it.qty)}</span><b>×${it.qty}</b><button class="btn sm" data-item="${it.id}">Move</button><button class="btn sm danger" data-del="${it.id}">−1</button></div>`;
   }
   $('#st-content').innerHTML=html+'</div>';
   $$('#st-content [data-item]').forEach(b=>b.onclick=()=>openBoxItem(items.find(x=>x.id===+b.dataset.item)));
