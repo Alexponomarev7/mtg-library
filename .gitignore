@@ -1,0 +1,6 @@
+library.db
+library.db-wal
+library.db-shm
+__pycache__/
+.DS_Store
+.claude/

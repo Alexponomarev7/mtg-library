@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Card Library</title>
+<style>
+:root{
+  --bg:#f3f0e8;--panel:#fffdf8;--panel2:#f8f5ee;--ink:#1d1b18;--muted:#6f6a60;--line:#e1dacb;
+  --accent:#2e6b5b;--accent-soft:#dcebe5;--accent-ink:#fff;--warn:#b0502c;--warn-soft:#f6e3da;
+  --ghost:.30;--radius:10px;--shadow:0 1px 2px rgba(30,25,15,.06),0 6px 18px rgba(30,25,15,.07);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141619;--panel:#1d2024;--panel2:#23272c;--ink:#ebe7de;--muted:#9b968c;--line:#31353b;
+  --accent:#5ab69a;--accent-soft:#1f3a32;--accent-ink:#0d1411;--warn:#e38a63;--warn-soft:#3b2620;--shadow:none;
+  --ghost:.5;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+header{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line)}
+.hwrap{max-width:1280px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.logo{font-weight:750;letter-spacing:-.01em;font-size:18px;display:flex;align-items:center;gap:8px}
+.logo i{display:inline-block;width:14px;height:19px;border-radius:2px;background:var(--accent);box-shadow:4px -3px 0 -1px var(--bg),4px -3px 0 0 var(--accent)}
+nav{display:flex;gap:4px;background:var(--panel2);padding:3px;border-radius:9px;border:1px solid var(--line)}
+.tab{border:0;background:none;padding:6px 14px;border-radius:7px;color:var(--muted);font-weight:600}
+.tab.active{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
+#stats{margin-left:auto;color:var(--muted);font-size:13px}
+main{max-width:1280px;margin:0 auto;padding:18px 16px 60px}
+.view[hidden]{display:none}
+.muted{color:var(--muted)}.small{font-size:12.5px}
+.btn{border:1px solid var(--line);background:var(--panel);padding:7px 13px;border-radius:8px;font-weight:600}
+a.btn{color:inherit;text-decoration:none;display:inline-flex;align-items:center}
+.btn:disabled{opacity:.45;cursor:default}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{color:var(--warn)}
+.btn.sm{padding:3px 9px;font-size:13px}
+.icon-btn{border:1px solid var(--line);background:var(--panel);border-radius:7px;width:30px;height:30px;display:inline-grid;place-items:center;font-weight:700}
+input[type=text],input[type=number],input:not([type]),select,textarea{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.searchbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.searchbar input.big{flex:1;min-width:220px;font-size:17px;padding:11px 14px}
+.empty{padding:28px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:var(--radius)}
+h2{font-size:20px;margin:0 0 4px;letter-spacing:-.01em}
+h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 10px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px;vertical-align:2px;background:var(--panel2);border:1px solid var(--line)}
+.badge.foil{background:linear-gradient(90deg,#f3d27a,#b7e3f0,#e6b7f0);color:#222;border:0}
+/* find */
+.row-item{display:grid;grid-template-columns:52px 1fr minmax(180px,auto) auto;gap:14px;align-items:center;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:8px}
+.thumb{width:52px;aspect-ratio:63/88;border-radius:4px;object-fit:cover;background:var(--panel2)}
+.ri-name{font-weight:650}
+.ri-meta{color:var(--muted);font-size:13px}
+.loc-store{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.loc-big{font-weight:700;font-size:16px;font-variant-numeric:tabular-nums}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block;flex:none}
+.ri-act{display:flex;gap:6px}
+@media (max-width:700px){.row-item{grid-template-columns:44px 1fr}.ri-loc,.ri-act{grid-column:2}}
+/* add */
+.add-grid{display:grid;grid-template-columns:1fr 360px;gap:18px;align-items:start}
+@media (max-width:900px){.add-grid{grid-template-columns:1fr}}
+.sticky{position:sticky;top:74px}
+.print-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
+.print{border:2px solid transparent;background:none;padding:0;text-align:left;border-radius:9px;position:relative}
+.print img{width:100%;aspect-ratio:63/88;object-fit:cover;border-radius:7px;display:block;background:var(--panel2)}
+.print.sel{border-color:var(--accent)}
+.p-meta{display:block;font-size:12px;padding:4px 2px;color:var(--muted);line-height:1.3}
+.p-meta b{color:var(--ink)}
+.owned{position:absolute;top:6px;right:6px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px}
+#add-panel{padding:16px}
+.ap-head{display:flex;gap:12px;margin-bottom:12px}
+.ap-head img{width:110px;border-radius:7px;aspect-ratio:63/88;object-fit:cover}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0 14px}
+.opts label{display:flex;flex-direction:column;font-size:12.5px;color:var(--muted);gap:3px}
+.opts label.chk{flex-direction:row;align-items:center;gap:6px;color:var(--ink);font-size:14px}
+.sug{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--panel2);border-radius:9px;padding:10px 12px;margin-bottom:8px;position:relative}
+.sug:hover{border-color:var(--accent)}
+.sug.best{border-color:var(--accent);background:var(--accent-soft)}
+.sug-top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.sug-pos{font-weight:750;font-size:17px;margin:2px 0;font-variant-numeric:tabular-nums}
+.tag{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.sug .pmap{position:absolute;right:12px;bottom:10px;width:46px}
+.pmap{display:grid;gap:2px;width:72px}
+.pmap i{aspect-ratio:63/88;border-radius:2px;background:var(--line)}
+.pmap i.on{background:var(--accent)}
+.placed{background:var(--accent);color:var(--accent-ink);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;display:grid;grid-template-columns:1fr auto;gap:4px 14px;align-items:center}
+.placed .pmap i{background:rgba(255,255,255,.28)}.placed .pmap i.on{background:var(--accent-ink)}
+@media (prefers-color-scheme:dark){.placed .pmap i{background:rgba(0,0,0,.25)}}
+.pl-label{font-size:12px;text-transform:uppercase;letter-spacing:.07em;opacity:.85}
+.pl-store{font-weight:700;font-size:16px}
+.pl-pos{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;display:flex;gap:10px;flex-wrap:wrap;white-space:nowrap}
+.pl-sub{font-size:12.5px;opacity:.85}
+.notes{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:10px}
+.owned-list{font-size:13px;margin:0 0 12px;padding:0;list-style:none}
+.owned-list li{padding:3px 0;border-bottom:1px solid var(--line)}
+.other{display:flex;gap:6px;margin-top:6px}
+.other select{flex:1;min-width:0}
+/* storage */
+.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.st-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.st-card{padding:14px 16px;text-align:left;border-left:5px solid var(--c,var(--accent));cursor:pointer;background:var(--panel)}
+.st-card:hover{border-color:var(--muted);border-left-color:var(--c,var(--accent))}
+.st-name{font-weight:700;font-size:16px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}
+.chip{font-size:11.5px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);text-transform:uppercase}
+.bar{height:6px;border-radius:3px;background:var(--panel2);overflow:hidden;margin-top:6px}
+.bar>i{display:block;height:100%;background:var(--c,var(--accent))}
+.detail-head{display:flex;gap:12px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.detail-grid{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
+@media (max-width:900px){.detail-grid{grid-template-columns:1fr}}
+.sets-panel{padding:14px}
+.set-list{list-style:none;margin:0 0 10px;padding:0}
+.set-row{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.seticon{width:20px;height:20px;object-fit:contain}
+@media (prefers-color-scheme:dark){.seticon{filter:invert(.9)}}
+.set-ctl{display:flex;gap:3px}
+.set-ctl .icon-btn{width:26px;height:26px;font-size:12px}
+.set-opts{grid-column:2/4;display:flex;gap:12px;font-size:12.5px;color:var(--muted)}
+.set-opts label{display:flex;gap:4px;align-items:center}
+.picker{position:relative}
+.picker input{width:100%}
+.picker ul{position:absolute;left:0;right:0;top:100%;margin:4px 0 0;padding:4px;list-style:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);max-height:300px;overflow:auto;z-index:5}
+.picker li{padding:6px 8px;border-radius:6px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.picker li:hover,.picker li.act{background:var(--accent-soft)}
+.pager{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.pager .info{color:var(--muted);font-size:13px}
+.binder-page{display:grid;gap:10px;background:var(--panel2);padding:14px;border-radius:var(--radius);border:1px solid var(--line);max-width:600px}
+.pocket{aspect-ratio:63/88;border-radius:7px;position:relative;padding:0;border:0;background:none;overflow:hidden}
+.pocket img{width:100%;height:100%;object-fit:cover;display:block;border-radius:7px}
+.pocket.empty{border:1.5px dashed var(--line);display:grid;place-items:center;color:var(--muted);font-size:12px;background:var(--panel)}
+.pocket.expect img{opacity:var(--ghost);filter:grayscale(1)}
+.pocket.expect:hover img{opacity:.6}
+.exp-label{position:absolute;left:0;right:0;bottom:0;padding:16px 6px 6px;font-size:11.5px;font-weight:600;background:linear-gradient(transparent,var(--panel) 60%);color:var(--ink);text-align:left;line-height:1.2}
+.foil-dot{position:absolute;top:5px;right:5px;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#f3d27a,#b7e3f0,#e6b7f0);font-size:10px;font-weight:800;color:#222;display:grid;place-items:center}
+.pocket.hl{outline:3px solid var(--accent);outline-offset:2px;animation:pulse 1.2s ease-in-out 3}
+@keyframes pulse{50%{outline-color:transparent}}
+.box-list .sec{margin:14px 0 6px;font-weight:700}
+.box-row{display:grid;grid-template-columns:36px 1fr auto auto auto;gap:10px;align-items:center;padding:6px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:5px}
+.box-row img{width:36px;aspect-ratio:63/88;border-radius:3px;object-fit:cover}
+/* dialogs */
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(10,10,10,.45)}
+.dlg{padding:18px 20px}
+.dlg h3{margin:0 0 12px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)}
+.form .full{grid-column:1/-1}
+.form label.chk{flex-direction:row;align-items:center;gap:7px;color:var(--ink);font-size:14px}
+.radio-card{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--ink)!important;font-size:14px!important;flex-direction:row!important}
+.radio-card small{display:block;color:var(--muted)}
+.presets{display:flex;gap:5px;flex-wrap:wrap}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0}
+.form label.swatch{position:relative;flex-direction:row;cursor:pointer}
+.swatch input{position:absolute;opacity:0;pointer-events:none}
+.swatch span{width:22px;height:22px;border-radius:50%;display:block;box-shadow:0 0 0 1px var(--line)}
+.swatch input:checked+span{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--ink)}
+.swatch input:focus-visible+span{outline:2px solid var(--accent);outline-offset:4px}
+.dlg-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.pocket-dlg{display:grid;grid-template-columns:180px minmax(0,1fr);gap:16px}
+.pocket-dlg img{width:100%;border-radius:9px}
+@media (max-width:520px){.pocket-dlg{grid-template-columns:1fr}}
+.moves li{padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.moves b{display:block}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:9px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;z-index:100;max-width:90vw}
+#toast.show{opacity:1}#toast.err{background:var(--warn);color:#fff}
+</style>
+</head>
+<body>
+<header><div class="hwrap">
+  <div class="logo"><i></i>Card Library</div>
+  <nav>
+    <button class="tab active" data-tab="find">Find</button>
+    <button class="tab" data-tab="add">Add cards</button>
+    <button class="tab" data-tab="storage">Binders &amp; boxes</button>
+  </nav>
+  <div id="stats"></div>
+</div></header>
+
+<main>
+  <section id="view-find" class="view">
+    <div class="searchbar">
+      <input id="find-q" class="big" placeholder="Where is my card?  Type a name, or set + number like “blb 12”" autocomplete="off">
+      <a class="btn" href="/api/export.csv">Export CSV</a>
+    </div>
+    <div id="find-results"></div>
+  </section>
+
+  <section id="view-add" class="view" hidden>
+    <div class="add-grid">
+      <div>
+        <div class="searchbar">
+          <input id="add-q" class="big" placeholder="Card name, or set + number (e.g. “blb 12”)" autocomplete="off">
+          <input id="add-set" placeholder="Set code" style="width:110px" autocomplete="off">
+          <button class="btn primary" id="add-go">Search</button>
+        </div>
+        <div id="add-results"><div class="empty">Search Scryfall for a card, then pick the exact printing you hold.</div></div>
+      </div>
+      <aside id="add-panel" class="panel sticky"><p class="muted" style="margin:0">Pick a printing to see where it goes.</p></aside>
+    </div>
+  </section>
+
+  <section id="view-storage" class="view" hidden>
+    <div id="storage-list-wrap">
+      <div class="toolbar">
+        <button class="btn primary" data-new="binder">+ New binder</button>
+        <button class="btn" data-new="box">+ New box</button>
+        <button class="btn" id="refresh-sets" style="margin-left:auto">Refresh set list</button>
+      </div>
+      <div id="storage-list" class="st-grid"></div>
+    </div>
+    <div id="storage-detail" hidden></div>
+  </section>
+</main>
+
+<dialog id="dlg-storage"><form class="dlg" method="dialog" id="storage-form"></form></dialog>
+<dialog id="dlg-pocket"><div class="dlg" id="pocket-body"></div></dialog>
+<dialog id="dlg-moves"><div class="dlg" id="moves-body"></div></dialog>
+<div id="toast"></div>
+
+<script>
+const $=(s,el=document)=>el.querySelector(s);
+const $$=(s,el=document)=>[...el.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path,opts={}){
+  const r=await fetch(path,{method:opts.method||'GET',headers:opts.body?{'Content-Type':'application/json'}:{},body:opts.body?JSON.stringify(opts.body):undefined});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||('Error '+r.status));
+  return j;
+}
+function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
+let toastT;
+function toast(msg,kind){const t=$('#toast');t.textContent=msg;t.className='show '+(kind||'');clearTimeout(toastT);toastT=setTimeout(()=>t.className='',kind==='err'?4500:2200)}
+const LANGS=[['en','English'],['nl','Dutch'],['ru','Russian'],['de','German'],['fr','French'],['it','Italian'],['es','Spanish'],['pt','Portuguese'],['ja','Japanese'],['ko','Korean'],['zhs','Chinese (S)'],['zht','Chinese (T)']];
+const LANG_NAME=Object.fromEntries(LANGS);
+const langName=k=>LANG_NAME[k]||k;
+const CONDS=['NM','LP','MP','HP','DMG'];
+const COLORS=['#2e6b5b','#3b5b9a','#8a3f6e','#b0502c','#a5832a','#55606e','#6b4fb0','#2f8a8f'];
+
+const S={tab:'find',storages:[],cur:null,page:1,highlight:null,sug:null,results:[],
+  opt:{foil:false,cond:'NM',lang:'en',qty:1},pageSlots:[]};
+
+function pocketMap(rows,cols,r,c){
+  let h=`<div class="pmap" style="grid-template-columns:repeat(${cols},1fr)">`;
+  for(let i=1;i<=rows;i++)for(let j=1;j<=cols;j++)h+=`<i class="${i===r&&j===c?'on':''}"></i>`;
+  return h+'</div>';
+}
+const dot=c=>`<span class="dot" style="background:${esc(c||'var(--accent)')}"></span>`;
+
+/* ------------------------------------------------------------ tabs & stats */
+function setTab(t){
+  S.tab=t;
+  $$('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
+  $$('.view').forEach(v=>v.hidden=v.id!=='view-'+t);
+  if(t==='find'){runFind();$('#find-q').focus()}
+  if(t==='add')$('#add-q').focus();
+  if(t==='storage'){if(S.cur)openStorage(S.cur.id,S.page);else loadStorages()}
+}
+$$('.tab').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='storage'&&S.tab==='storage'){S.cur=null}setTab(b.dataset.tab)});
+async function loadStats(){
+  try{const s=await api('/api/stats');$('#stats').textContent=`${s.cards} cards · ${s.unique} unique · ${s.storages} places`}catch(e){}
+}
+
+/* ------------------------------------------------------------ find */
+function locHtml(it){
+  if(it.kind==='binder'){
+    if(!it.loc)return `<div class="loc-store">${dot(it.color)}${esc(it.storage_name)}</div><div class="loc-big" style="color:var(--warn)">no pocket</div>`;
+    return `<div class="loc-store">${dot(it.color)}${esc(it.storage_name)}</div><div class="loc-big">Page ${it.loc.page} · Row ${it.loc.row} · Col ${it.loc.col}</div>`;
+  }
+  return `<div class="loc-store">${dot(it.color)}${esc(it.storage_name)} (box)</div><div class="loc-big">${esc(it.section||'—')}</div>`;
+}
+function itemRow(it){
+  return `<div class="row-item">
+    <img class="thumb" src="${esc(it.image)}" loading="lazy" alt="">
+    <div><div class="ri-name">${esc(it.name)} ${it.foil?'<span class="badge foil">Foil</span>':''}</div>
+      <div class="ri-meta">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · ${esc(it.condition)} · ${esc(langName(it.lang))}${it.qty>1?` · <b>×${it.qty}</b>`:''}</div></div>
+    <div class="ri-loc">${locHtml(it)}</div>
+    <div class="ri-act">${it.kind==='binder'&&it.slot!=null?`<button class="btn sm" data-show="${it.storage_id}:${it.slot}">Show</button>`:`<button class="btn sm" data-showbox="${it.storage_id}">Open</button>`}
+      <button class="btn sm danger" data-del="${it.id}">Remove${it.qty>1?' 1':''}</button></div>
+  </div>`;
+}
+let findSeq=0;
+const runFind=debounce(async()=>{
+  const q=$('#find-q').value.trim(),el=$('#find-results'),seq=++findSeq;
+  try{
+    const items=await api('/api/items?q='+encodeURIComponent(q));
+    if(seq!==findSeq)return;
+    el.innerHTML=items.length?(q?'':'<h3 class="sub">Recently added</h3>')+items.map(itemRow).join('')
+      :`<div class="empty">${q?'Not found in your collection.':S.storages.length?'No cards yet. Go to Add cards to put your first one away.':'Your collection is empty. Create a binder or box, then add cards.'}</div>`;
+  }catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`}
+},180);
+$('#find-q').addEventListener('input',runFind);
+$('#find-results').addEventListener('click',async e=>{
+  const s=e.target.closest('[data-show]');
+  if(s){const[sid,slot]=s.dataset.show.split(':').map(Number);return showSlot(sid,slot)}
+  const b=e.target.closest('[data-showbox]');
+  if(b){S.cur={id:+b.dataset.showbox};S.page=1;return setTab('storage')}
+  const d=e.target.closest('[data-del]');
+  if(d){if(!confirm('Remove this card from your collection?'))return;
+    try{await api('/api/items/'+d.dataset.del+'?one=1',{method:'DELETE'});toast('Removed');runFind();loadStats()}catch(err){toast(err.message,'err')}}
+});
+async function showSlot(sid,slot){
+  const st=await api('/api/storages/'+sid);
+  S.cur=st;S.page=Math.floor(slot/(st.rows*st.cols))+1;S.highlight=slot;setTab('storage');
+}
+
+/* ------------------------------------------------------------ add */
+let addSeq=0;
+async function runAddSearch(){
+  const q=$('#add-q').value.trim(),set=$('#add-set').value.trim(),el=$('#add-results'),seq=++addSeq;
+  if(!q&&!set){return}
+  el.innerHTML='<div class="empty">Searching Scryfall…</div>';
+  try{
+    const cards=await api(`/api/cards/search?q=${encodeURIComponent(q)}&set=${encodeURIComponent(set)}`);
+    if(seq!==addSeq)return;
+    S.results=cards;
+    el.innerHTML=cards.length?`<h3 class="sub">${cards.length} printing${cards.length>1?'s':''} — pick the one you hold</h3><div class="print-grid">${cards.map((c,i)=>
+      `<button class="print" data-i="${i}" title="${esc(c.name)}"><img src="${esc(c.image)}" loading="lazy" alt="${esc(c.name)}">
+       <span class="p-meta"><b>${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}</b><br>${esc(c.set_name||'')}</span>
+       ${c.owned?`<span class="owned">own ${c.owned}</span>`:''}</button>`).join('')}</div>`
+      :'<div class="empty">No cards found.</div>';
+    if(cards.length===1)selectPrinting(0);
+  }catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`}
+}
+$('#add-go').onclick=runAddSearch;
+$('#add-q').addEventListener('keydown',e=>{if(e.key==='Enter')runAddSearch()});
+$('#add-set').addEventListener('keydown',e=>{if(e.key==='Enter')runAddSearch()});
+$('#add-results').addEventListener('click',e=>{const b=e.target.closest('.print');if(b)selectPrinting(+b.dataset.i)});
+async function selectPrinting(i){
+  $$('.print').forEach(b=>b.classList.toggle('sel',+b.dataset.i===i));
+  const c=S.results[i];
+  $('#add-panel').innerHTML='<div class="empty">Finding a spot…</div>';
+  try{renderAddPanel(await api('/api/suggest',{method:'POST',body:{card_id:c.id}}))}
+  catch(e){$('#add-panel').innerHTML=`<div class="notes">${esc(e.message)}</div>`}
+}
+function placedHtml(it){
+  if(it.kind==='binder'&&it.loc)return `<div class="placed"><div><div class="pl-label">Put it in</div><div class="pl-store">${esc(it.storage_name)}</div>
+    <div class="pl-pos"><span>Page ${it.loc.page}</span><span>Row ${it.loc.row}</span><span>Col ${it.loc.col}</span></div>
+    ${it.loc.side?`<div class="pl-sub">Sheet ${it.loc.sheet}, ${it.loc.side} side</div>`:''}</div>${pocketMap(it.rows,it.cols,it.loc.row,it.loc.col)}</div>`;
+  return `<div class="placed"><div><div class="pl-label">Put it in</div><div class="pl-store">${esc(it.storage_name)}</div>
+    <div class="pl-pos" style="font-size:18px">${esc(it.section||'')}</div>${it.qty>1?`<div class="pl-sub">You now have ${it.qty} there</div>`:''}</div></div>`;
+}
+function renderAddPanel(r,placed){
+  S.sug=r;const c=r.card,o=S.opt;
+  const sugg=r.suggestions.map((s,i)=>`<button class="sug ${i===0?'best':''}" data-sid="${s.storage_id}" data-slot="${s.slot??''}">
+      <div class="sug-top"><span style="display:flex;gap:6px;align-items:center">${dot(s.color)}<b>${esc(s.storage_name)}</b></span><span class="tag">${i===0?'best spot':s.kind+(s.general?' · general':'')}</span></div>
+      <div class="sug-pos">${s.kind==='binder'?`Page ${s.loc.page} · Row ${s.loc.row} · Col ${s.loc.col}`:esc(s.section||'')}</div>
+      <div class="muted small" style="padding-right:56px">${esc(s.reason)}${s.loc&&s.loc.side?` · sheet ${s.loc.sheet} ${s.loc.side}`:''}</div>
+      ${s.kind==='binder'?pocketMap(s.rows,s.cols,s.loc.row,s.loc.col):''}</button>`).join('');
+  $('#add-panel').innerHTML=`
+    ${placed?placedHtml(placed):''}
+    <div class="ap-head"><img src="${esc(c.image_large||c.image)}" alt="">
+      <div><div style="font-weight:700;font-size:16px">${esc(c.name)}</div>
+      <div class="muted small">${esc(c.set_name||'')}<br>${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.rarity||'')}</div>
+      <div class="muted small" style="margin-top:6px">${esc(c.type_line||'')}</div></div></div>
+    <div class="opts">
+      <label class="chk"><input type="checkbox" id="o-foil" ${o.foil?'checked':''}> Foil</label>
+      <label>Copies <small>(boxes)</small><input type="number" id="o-qty" min="1" value="${o.qty}"></label>
+      <label>Condition<select id="o-cond">${CONDS.map(x=>`<option ${x===o.cond?'selected':''}>${x}</option>`).join('')}</select></label>
+      <label>Language<select id="o-lang">${LANGS.map(([k,v])=>`<option value="${k}" ${k===o.lang?'selected':''}>${v}</option>`).join('')}</select></label>
+    </div>
+    ${r.owned.length?`<h3 class="sub">You own ${r.owned.reduce((a,x)=>a+x.qty,0)}</h3><ul class="owned-list">${r.owned.map(x=>`<li>${x.foil?'<span class="badge foil">F</span> ':''}${esc(x.location)}${x.qty>1?` ×${x.qty}`:''}</li>`).join('')}</ul>`:''}
+    ${r.notes.map(n=>`<div class="notes">${esc(n)}</div>`).join('')}
+    ${sugg?`<h3 class="sub">Where to put it</h3>${sugg}`:''}
+    <h3 class="sub" style="margin-top:14px">Somewhere else</h3>
+    <div class="other"><select id="o-store">${S.storages.map(s=>`<option value="${s.id}">${esc(s.name)} (${s.kind})</option>`).join('')}</select>
+      <button class="btn" id="o-put">Put here</button></div>`;
+  $('#o-foil').onchange=e=>o.foil=e.target.checked;
+  $('#o-qty').onchange=e=>o.qty=Math.max(1,+e.target.value||1);
+  $('#o-cond').onchange=e=>o.cond=e.target.value;
+  $('#o-lang').onchange=e=>o.lang=e.target.value;
+  $$('#add-panel .sug').forEach(b=>b.onclick=()=>putCard(+b.dataset.sid,b.dataset.slot===''?null:+b.dataset.slot));
+  $('#o-put').onclick=()=>{const v=$('#o-store').value;if(v)putCard(+v,null)};
+  if(!S.storages.length)api('/api/storages').then(l=>{S.storages=l;if(S.sug===r)$('#o-store').innerHTML=l.map(s=>`<option value="${s.id}">${esc(s.name)} (${s.kind})</option>`).join('')});
+}
+async function putCard(storage_id,slot){
+  const c=S.sug.card,o=S.opt;
+  try{
+    const r=await api('/api/items',{method:'POST',body:{card_id:c.id,storage_id,slot:slot??'auto',foil:o.foil,condition:o.cond,lang:o.lang,qty:o.qty}});
+    o.qty=1;
+    const sug=await api('/api/suggest',{method:'POST',body:{card_id:c.id}});
+    renderAddPanel(sug,r.item);
+    const ri=S.results.findIndex(x=>x.id===c.id);
+    if(ri>=0){const n=S.results[ri].owned=sug.owned.reduce((a,x)=>a+x.qty,0),tile=$(`.print[data-i="${ri}"]`);
+      if(tile){let b=$('.owned',tile);if(!b){b=document.createElement('span');b.className='owned';tile.append(b)}b.textContent='own '+n}}
+    loadStats();
+  }catch(e){toast(e.message,'err')}
+}
+
+/* ------------------------------------------------------------ storage list */
+async function refreshStorages(){S.storages=await api('/api/storages');return S.storages}
+async function loadStorages(){
+  S.cur=null;$('#storage-detail').hidden=true;$('#storage-list-wrap').hidden=false;
+  await refreshStorages();
+  const el=$('#storage-list');
+  if(!S.storages.length){el.innerHTML='<div class="empty" style="grid-column:1/-1">No binders or boxes yet. Create your first one above.</div>';return}
+  el.innerHTML=S.storages.map(s=>{
+    const cap=s.capacity_total,pct=cap?Math.min(100,Math.round(100*s.count/cap)):0;
+    return `<div class="panel st-card" style="--c:${esc(s.color||'')}" data-open="${s.id}">
+      <div style="display:flex;justify-content:space-between"><span class="st-name">${esc(s.name)}</span><span class="tag">${s.kind}</span></div>
+      <div class="muted small">${s.kind==='binder'?`${s.page_count} pages · ${s.rows}×${s.cols} pockets · ${s.mode==='set_order'?'set order':'fill in order'}`:(s.capacity?`holds ${s.capacity}`:'no size limit')}</div>
+      <div class="chips">${s.sets.length?s.sets.map(x=>`<span class="chip" title="${esc(x.name||'')}">${esc(x.set_code)}</span>`).join(''):'<span class="muted small">any set (general)</span>'}</div>
+      <div class="small"><b>${s.count}</b>${cap?` / ${cap}`:''} cards</div>${cap?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}
+    </div>`}).join('');
+}
+$('#storage-list').addEventListener('click',e=>{const c=e.target.closest('[data-open]');if(c)openStorage(+c.dataset.open,1)});
+$$('[data-new]').forEach(b=>b.onclick=()=>storageForm(b.dataset.new));
+$('#refresh-sets').onclick=async()=>{toast('Refreshing sets from Scryfall…');try{const r=await api('/api/sets/refresh',{method:'POST'});toast(`Set list updated (${r.sets} sets)`)}catch(e){toast(e.message,'err')}};
+
+function storageForm(kind,st){
+  const s=st||{kind,name:'',sheets:20,rows:3,cols:3,double_sided:1,mode:'set_order',capacity:'',color:COLORS[Math.floor(Math.random()*COLORS.length)],notes:''};
+  const locked=st&&st.count>0;
+  const f=$('#storage-form');
+  f.innerHTML=`<h3>${st?'Edit':'New'} ${kind}</h3><div class="form">
+    <label class="full">Name<input name="name" value="${esc(s.name)}" required placeholder="${kind==='binder'?'e.g. Bloomburrow binder':'e.g. Bulk box 1'}"></label>
+    ${kind==='binder'?`
+      <label>Sheets (plastic pages)<input type="number" name="sheets" min="1" value="${s.sheets}"></label>
+      <label class="chk" style="align-self:end"><input type="checkbox" name="double_sided" ${s.double_sided?'checked':''} ${locked?'disabled':''}> Cards on both sides</label>
+      <label>Rows per page<input type="number" name="rows" min="1" max="8" value="${s.rows}" ${locked?'disabled':''}></label>
+      <label>Columns per page<input type="number" name="cols" min="1" max="8" value="${s.cols}" ${locked?'disabled':''}></label>
+      ${locked?'':`<div class="full presets"><span class="muted small">Pocket layout:</span>${[[3,3],[3,4],[2,2],[4,3],[2,3]].map(([r,c])=>`<button type="button" class="btn sm" data-rc="${r},${c}">${r*c}-pocket (${r}×${c})</button>`).join('')}</div>`}
+      <div class="full" style="display:grid;gap:6px">
+        <label class="radio-card"><input type="radio" name="mode" value="set_order" ${s.mode==='set_order'?'checked':''} ${locked?'disabled':''}><span><b>Set order</b><small>Each card has its own fixed pocket by collector number. Missing cards show as empty spots.</small></span></label>
+        <label class="radio-card"><input type="radio" name="mode" value="sequential" ${s.mode==='sequential'?'checked':''} ${locked?'disabled':''}><span><b>Fill in order</b><small>Each new card goes into the next empty pocket.</small></span></label>
+      </div>
+      <div class="full muted small" id="cap-hint"></div>`
+    :`<label class="full">Capacity (cards, optional)<input type="number" name="capacity" min="1" value="${s.capacity??''}" placeholder="e.g. 800"></label>`}
+    <div class="full" style="font-size:12.5px;color:var(--muted)">Color<div class="swatches">${COLORS.map(c=>`<label class="swatch" title="${c}"><input type="radio" name="color" value="${c}" ${c===s.color?'checked':''}><span style="background:${c}"></span></label>`).join('')}</div></div>
+    <label class="full">Notes<textarea name="notes" rows="2" placeholder="Where it is, brand, etc.">${esc(s.notes||'')}</textarea></label>
+    ${locked?'<div class="full muted small">Pocket grid and filling mode are locked while the binder holds cards.</div>':''}
+  </div>
+  <div class="dlg-foot"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">${st?'Save':'Create'}</button></div>`;
+  const hint=()=>{const h=$('#cap-hint',f);if(!h)return;const n=+f.sheets.value*(f.double_sided.checked?2:1),pp=+f.rows.value*+f.cols.value;h.textContent=`${n} pages × ${pp} pockets = ${n*pp} cards`};
+  f.oninput=hint;hint();
+  $$('[data-rc]',f).forEach(b=>b.onclick=()=>{const[r,c]=b.dataset.rc.split(',');f.rows.value=r;f.cols.value=c;hint()});
+  const dlg=$('#dlg-storage');
+  dlg.onclose=async()=>{
+    if(dlg.returnValue!=='ok')return;
+    const fd=new FormData(f),body={kind,name:fd.get('name'),color:fd.get('color'),notes:fd.get('notes')};
+    if(kind==='binder'){Object.assign(body,{sheets:fd.get('sheets'),rows:f.rows.value,cols:f.cols.value,double_sided:f.double_sided.checked,mode:locked?s.mode:fd.get('mode')})}
+    else body.capacity=fd.get('capacity');
+    try{
+      if(st){const r=await api('/api/storages/'+st.id,{method:'PUT',body});showMoves(r.moves);openStorage(st.id,S.page)}
+      else{const r=await api('/api/storages',{method:'POST',body});toast('Created '+r.name);openStorage(r.id,1)}
+      loadStats();refreshStorages();
+    }catch(e){toast(e.message,'err')}
+  };
+  dlg.returnValue='';dlg.showModal();
+}
+
+/* ------------------------------------------------------------ storage detail */
+async function openStorage(id,page=1){
+  let st;
+  try{st=await api('/api/storages/'+id)}catch(e){toast(e.message,'err');return loadStorages()}
+  S.cur=st;S.page=page;
+  $('#storage-list-wrap').hidden=true;
+  const d=$('#storage-detail');d.hidden=false;
+  const setOrder=st.kind==='binder'&&st.mode==='set_order';
+  const secBy={};(st.sections||[]).forEach(x=>secBy[x.set_code]=x);
+  const cap=st.capacity_total;
+  d.innerHTML=`
+    <div class="detail-head">
+      <button class="btn" id="back">← All</button>
+      <div style="flex:1;min-width:200px"><h2 style="display:flex;gap:8px;align-items:center">${dot(st.color)}${esc(st.name)}</h2>
+        <div class="muted small">${st.kind==='binder'?`${st.page_count} pages (${st.sheets} sheets${st.double_sided?', both sides':''}) · ${st.rows}×${st.cols} pockets · ${st.mode==='set_order'?'set order':'fill in order'} · `:''}${st.count}${cap?` / ${cap}`:''} cards${st.notes?' · '+esc(st.notes):''}</div></div>
+      <button class="btn" id="edit">Edit</button><button class="btn danger" id="del">Delete</button>
+    </div>
+    <div class="detail-grid">
+      <div class="panel sets-panel">
+        <h3 class="sub">Sets in this ${st.kind}</h3>
+        ${st.sets.length?'':`<p class="muted small" style="margin-top:0">No sets assigned — this ${st.kind} accepts cards from any set.</p>`}
+        <ul class="set-list">${st.sets.map((x,i)=>{const sec=secBy[x.set_code];return `
+          <li class="set-row"><img class="seticon" src="${esc(x.icon||'')}" alt="">
+            <div><b>${esc(x.name||x.set_code)}</b> <span class="muted small">${esc(x.set_code.toUpperCase())}</span>
+              ${sec?`<div class="muted small">${sec.count?`pages ${sec.page_from}–${sec.page_to} · ${sec.owned}/${sec.count} owned`:'no cards loaded'}</div>`:''}</div>
+            <div class="set-ctl">${setOrder?`<button class="icon-btn" data-mv="${x.set_code}:-1" ${i===0?'disabled':''} title="Move up">↑</button><button class="icon-btn" data-mv="${x.set_code}:1" ${i===st.sets.length-1?'disabled':''} title="Move down">↓</button>`:''}<button class="icon-btn" data-rm="${x.set_code}" title="Remove set">✕</button></div>
+            ${setOrder?`<div class="set-opts"><label><input type="checkbox" data-np="${x.set_code}" ${x.new_page?'checked':''}> starts on new page</label><label><input type="checkbox" data-ex="${x.set_code}" ${x.include_extras?'checked':''}> include extras/variants</label></div>`:''}
+          </li>`}).join('')}</ul>
+        ${st.layout_pages>st.page_count?`<div class="notes">These sets need ${st.layout_pages} pages but the binder has ${st.page_count}. Add sheets in Edit.</div>`:''}
+        <div class="picker"><input id="set-pick" placeholder="+ Assign a set (name or code)" autocomplete="off"><ul id="set-opts" hidden></ul></div>
+        ${setOrder?'<p class="muted small">Cards are placed by collector number. Grey cards in the binder are ones you don’t have yet — click one to add it.</p>':''}
+      </div>
+      <div id="st-content"></div>
+    </div>`;
+  $('#back').onclick=loadStorages;
+  $('#edit').onclick=()=>storageForm(st.kind,st);
+  $('#del').onclick=async()=>{if(!confirm(`Delete ${st.name}?`))return;try{await api('/api/storages/'+st.id,{method:'DELETE'});toast('Deleted');loadStats();loadStorages()}catch(e){toast(e.message,'err')}};
+  const setCall=async(p)=>{try{const r=await p;showMoves(r.moves);openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
+  $$('[data-mv]',d).forEach(b=>b.onclick=()=>{const[c,dir]=b.dataset.mv.split(':');setCall(api(`/api/storages/${st.id}/sets/${c}/move`,{method:'POST',body:{dir:+dir}}))});
+  $$('[data-rm]',d).forEach(b=>b.onclick=()=>{if(confirm('Remove this set from the '+st.kind+'?'))setCall(api(`/api/storages/${st.id}/sets/${b.dataset.rm}`,{method:'DELETE'}))});
+  $$('[data-np]',d).forEach(b=>b.onchange=()=>setCall(api(`/api/storages/${st.id}/sets/${b.dataset.np}`,{method:'PUT',body:{new_page:b.checked}})));
+  $$('[data-ex]',d).forEach(b=>b.onchange=()=>setCall(api(`/api/storages/${st.id}/sets/${b.dataset.ex}`,{method:'PUT',body:{include_extras:b.checked}})));
+  bindSetPicker(st,setCall);
+  if(st.kind==='binder')loadPage(page);else loadBox();
+}
+function bindSetPicker(st,setCall){
+  const inp=$('#set-pick'),ul=$('#set-opts');let list=[],act=0;
+  const draw=()=>{ul.hidden=!list.length;ul.innerHTML=list.map((s,i)=>`<li class="${i===act?'act':''}" data-code="${s.code}"><img class="seticon" src="${esc(s.icon||'')}" alt=""><span><b>${esc(s.name)}</b> <span class="muted small">${s.code.toUpperCase()} · ${esc((s.released_at||'').slice(0,4))} · ${s.printed_size||s.card_count||'?'} cards</span></span></li>`).join('')};
+  const pick=code=>{ul.hidden=true;inp.value='';if(st.kind==='binder'&&st.mode==='set_order')toast('Loading set cards from Scryfall…');setCall(api(`/api/storages/${st.id}/sets`,{method:'POST',body:{set_code:code}}))};
+  inp.addEventListener('input',debounce(async()=>{const q=inp.value.trim();if(!q){list=[];return draw()}try{list=await api('/api/sets?q='+encodeURIComponent(q));act=0;draw()}catch(e){toast(e.message,'err')}},200));
+  inp.addEventListener('keydown',e=>{if(ul.hidden)return;if(e.key==='ArrowDown'){act=Math.min(act+1,list.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){act=Math.max(act-1,0);draw();e.preventDefault()}else if(e.key==='Enter'&&list[act]){pick(list[act].code)}else if(e.key==='Escape')ul.hidden=true});
+  ul.addEventListener('mousedown',e=>{const li=e.target.closest('li');if(li){e.preventDefault();pick(li.dataset.code)}});
+  inp.addEventListener('blur',()=>setTimeout(()=>ul.hidden=true,150));
+}
+async function loadPage(n){
+  const st=S.cur;
+  let r;try{r=await api(`/api/storages/${st.id}/page?n=${n}`)}catch(e){return toast(e.message,'err')}
+  S.page=r.page;S.pageSlots=r.slots;
+  const hl=S.highlight;S.highlight=null;
+  const opts=[];for(let i=1;i<=r.page_count;i++)opts.push(`<option value="${i}" ${i===r.page?'selected':''}>Page ${i}</option>`);
+  $('#st-content').innerHTML=`
+    <div class="pager">
+      <button class="btn" id="pg-prev" ${r.page<=1?'disabled':''}>←</button>
+      <select id="pg-sel">${opts.join('')}</select>
+      <button class="btn" id="pg-next" ${r.page>=r.page_count?'disabled':''}>→</button>
+      <span class="info">${r.side?`Sheet ${r.sheet}, ${r.side}`:`Sheet ${r.sheet}`} of ${st.sheets}${r.sections.length?' · '+esc(r.sections.join(', ')):''}</span>
+    </div>
+    <div class="binder-page" style="grid-template-columns:repeat(${st.cols},minmax(0,1fr))">
+      ${r.slots.map(s=>{const h=s.slot===hl?'hl':'';
+        if(s.item)return `<button class="pocket ${h}" data-slot="${s.slot}" title="${esc(s.item.name)} — R${s.row} C${s.col}"><img src="${esc(s.item.image_large||s.item.image)}" alt="${esc(s.item.name)}" loading="lazy">${s.item.foil?'<span class="foil-dot">F</span>':''}</button>`;
+        if(s.expected)return `<button class="pocket expect ${h}" data-slot="${s.slot}" title="Missing: ${esc(s.expected.name)}"><img src="${esc(s.expected.image_large||s.expected.image)}" alt="" loading="lazy"><span class="exp-label">#${esc(s.expected.collector_number)} ${esc(s.expected.name)}</span></button>`;
+        return `<div class="pocket empty ${h}"><span>R${s.row} · C${s.col}</span></div>`}).join('')}
+    </div>
+    <p class="muted small">Tip: use ← → keys to flip pages.</p>`;
+  $('#pg-prev').onclick=()=>loadPage(S.page-1);
+  $('#pg-next').onclick=()=>loadPage(S.page+1);
+  $('#pg-sel').onchange=e=>loadPage(+e.target.value);
+  $$('#st-content .pocket[data-slot]').forEach(b=>b.onclick=()=>openPocket(+b.dataset.slot));
+  if(hl!=null){const el=$('.pocket.hl');if(el)el.scrollIntoView({block:'center',behavior:'smooth'})}
+}
+document.addEventListener('keydown',e=>{
+  if(S.tab!=='storage'||!S.cur||S.cur.kind!=='binder'||$('#storage-detail').hidden)return;
+  if(document.querySelector('dialog[open]')||/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))return;
+  if(e.key==='ArrowLeft'&&S.page>1)loadPage(S.page-1);
+  if(e.key==='ArrowRight'&&S.page<S.cur.page_count)loadPage(S.page+1);
+});
+function openPocket(slot){
+  const s=S.pageSlots.find(x=>x.slot===slot),st=S.cur,body=$('#pocket-body'),dlg=$('#dlg-pocket');
+  const where=`${esc(st.name)} — Page ${S.page}, Row ${s.row}, Column ${s.col}`;
+  if(s.item){const it=s.item;
+    body.innerHTML=`<div class="pocket-dlg"><img src="${esc(it.image_large||it.image)}" alt="">
+      <div><h3>${esc(it.name)} ${it.foil?'<span class="badge foil">Foil</span>':''}</h3>
+      <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))}</div>
+      <p><b>${where}</b></p>
+      ${s.expected&&s.expected.id!==it.card_id?'<div class="notes">This pocket is reserved for '+esc(s.expected.name)+'.</div>':''}
+      ${moveCtl()}
+      </div></div>
+      <div class="dlg-foot"><button class="btn danger" id="pk-del">Remove from collection</button><button class="btn" id="pk-close">Close</button></div>`;
+    $('#pk-del').onclick=async()=>{try{await api('/api/items/'+it.id,{method:'DELETE'});dlg.close();toast('Removed');loadStats();openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
+    bindMove(it,st,dlg);
+  }else{const c=s.expected;
+    body.innerHTML=`<div class="pocket-dlg"><img src="${esc(c.image_large||c.image)}" alt="">
+      <div><h3>${esc(c.name)}</h3><div class="muted small">${esc(c.set_name||'')} · ${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.rarity||'')}</div>
+      <p>Not in your collection yet.<br><b>${where}</b></p>
+      <div class="opts"><label class="chk"><input type="checkbox" id="pk-foil"> Foil</label>
+      <label>Condition<select id="pk-cond">${CONDS.map(x=>`<option>${x}</option>`).join('')}</select></label></div></div></div>
+      <div class="dlg-foot"><button class="btn" id="pk-close">Cancel</button><button class="btn primary" id="pk-add">Add to this pocket</button></div>`;
+    $('#pk-add').onclick=async()=>{try{await api('/api/items',{method:'POST',body:{card_id:c.id,storage_id:st.id,slot,foil:$('#pk-foil').checked,condition:$('#pk-cond').value,lang:S.opt.lang}});dlg.close();toast('Added');loadStats();S.highlight=slot;openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
+  }
+  $('#pk-close').onclick=()=>dlg.close();
+  dlg.showModal();
+}
+const moveCtl=()=>`<div class="other"><select id="mv-to"><option value="">Loading…</option></select><button class="btn" id="mv-go" disabled>Move</button></div>`;
+function bindMove(it,st,dlg){
+  const sel=$('#mv-to'),go=$('#mv-go');
+  refreshStorages().then(l=>{const o=l.filter(x=>x.id!==st.id);
+    sel.innerHTML=o.length?o.map(x=>`<option value="${x.id}">${esc(x.name)} (${x.kind})</option>`).join(''):'<option value="">No other binder or box yet</option>';
+    go.disabled=!o.length}).catch(e=>toast(e.message,'err'));
+  go.onclick=async()=>{const to=sel.value;if(!to)return;
+    try{const r=await api('/api/items/'+it.id,{method:'PUT',body:{storage_id:+to,slot:'auto'}});dlg.close();toast('Move it to: '+r.item.location);loadStats();openStorage(st.id,S.page)}
+    catch(e){toast(e.message,'err')}};
+}
+function openBoxItem(it){
+  const st=S.cur,body=$('#pocket-body'),dlg=$('#dlg-pocket');
+  body.innerHTML=`<div class="pocket-dlg"><img src="${esc(it.image_large||it.image)}" alt="">
+    <div><h3>${esc(it.name)} ${it.foil?'<span class="badge foil">Foil</span>':''}</h3>
+    <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))}</div>
+    <p><b>${esc(st.name)} — ${esc(it.section||'No section')}${it.qty>1?` · ×${it.qty}`:''}</b></p>
+    ${it.qty>1?'<p class="muted small">Moving to a box takes the whole stack; moving to a binder takes one copy.</p>':''}
+    ${moveCtl()}</div></div>
+    <div class="dlg-foot"><button class="btn" id="pk-close">Close</button></div>`;
+  bindMove(it,st,dlg);
+  $('#pk-close').onclick=()=>dlg.close();
+  dlg.showModal();
+}
+async function loadBox(){
+  const st=S.cur;
+  const items=await api('/api/items?storage='+st.id);
+  if(!items.length){$('#st-content').innerHTML='<div class="empty">This box is empty.</div>';return}
+  let html='<div class="box-list">',sec=null;
+  for(const it of items){
+    if(it.section!==sec){sec=it.section;html+=`<div class="sec">${esc(sec||'No section')}</div>`}
+    html+=`<div class="box-row"><img src="${esc(it.image)}" alt="" loading="lazy">
+      <div><b>${esc(it.name)}</b> ${it.foil?'<span class="badge foil">Foil</span>':''}<div class="muted small">${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · ${esc(it.condition)} · ${esc(langName(it.lang))}</div></div>
+      <b>×${it.qty}</b><button class="btn sm" data-item="${it.id}">Move</button><button class="btn sm danger" data-del="${it.id}">−1</button></div>`;
+  }
+  $('#st-content').innerHTML=html+'</div>';
+  $$('#st-content [data-item]').forEach(b=>b.onclick=()=>openBoxItem(items.find(x=>x.id===+b.dataset.item)));
+  $$('#st-content [data-del]').forEach(b=>b.onclick=async()=>{try{await api('/api/items/'+b.dataset.del+'?one=1',{method:'DELETE'});loadStats();openStorage(st.id)}catch(e){toast(e.message,'err')}});
+}
+function showMoves(moves){
+  if(!moves||!moves.length)return;
+  $('#moves-body').innerHTML=`<h3>Move these cards in your binder</h3><p class="muted small">The layout changed, so ${moves.length} card${moves.length>1?'s':''} now belong${moves.length>1?'':'s'} in a different pocket.</p>
+    <ul class="moves" style="list-style:none;padding:0;max-height:55vh;overflow:auto">${moves.map(m=>`<li><b>${esc(m.name)} <span class="muted small">${esc(m.set_code.toUpperCase())} #${esc(m.collector_number)}</span></b>${esc(m.from)} → <b style="display:inline">${esc(m.to)}</b></li>`).join('')}</ul>
+    <div class="dlg-foot"><button class="btn primary" onclick="this.closest('dialog').close()">Done</button></div>`;
+  $('#dlg-moves').showModal();
+}
+
+/* ------------------------------------------------------------ boot */
+loadStats();
+api('/api/storages').then(l=>S.storages=l).catch(()=>{});
+setTab('find');
+</script>
+</body>
+</html>
