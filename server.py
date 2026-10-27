@@ -236,7 +236,10 @@ def binder_layout(db, st):
         cards = db.execute("SELECT id, collector_number, booster FROM cards WHERE set_code=?",
                            (a["set_code"],)).fetchall()
         if not a["include_extras"]:
-            cards = [c for c in cards if is_main(c["collector_number"], a["printed_size"], c["booster"])]
+            # brand-new sets can have no booster data yet (every card false) - then the flag tells us nothing
+            tagged = any(c["booster"] for c in cards)
+            cards = [c for c in cards
+                     if is_main(c["collector_number"], a["printed_size"], c["booster"] if tagged else None)]
         cards.sort(key=lambda c: cn_key(c["collector_number"]))
         if a["new_page"] and offset % pp:
             offset += pp - offset % pp
