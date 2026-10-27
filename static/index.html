@@ -119,6 +119,13 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .set-ctl .icon-btn{width:26px;height:26px;font-size:12px}
 .set-opts{grid-column:2/4;display:flex;gap:12px;font-size:12.5px;color:var(--muted)}
 .set-opts label{display:flex;gap:4px;align-items:center}
+.set-opts{flex-wrap:wrap;row-gap:2px}
+.space{margin:4px 0 14px;font-size:12.5px}
+.space-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--panel2);border:1px solid var(--line);margin:6px 0 8px}
+.space-bar i{display:block;height:100%}
+.space-row{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.space-row span:first-child{display:flex;gap:6px;align-items:center}
+.sw{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}
 .picker{position:relative}
 .picker input{width:100%}
 .picker ul{position:absolute;left:0;right:0;top:100%;margin:4px 0 0;padding:4px;list-style:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);max-height:300px;overflow:auto;z-index:5}
@@ -216,6 +223,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 
 <dialog id="dlg-storage"><form class="dlg" method="dialog" id="storage-form"></form></dialog>
 <dialog id="dlg-pocket"><div class="dlg" id="pocket-body"></div></dialog>
+<dialog id="dlg-addset"><form class="dlg" method="dialog" id="addset-form"></form></dialog>
 <dialog id="dlg-moves"><div class="dlg" id="moves-body"></div></dialog>
 <div id="toast"></div>
 
@@ -402,6 +410,7 @@ async function loadStorages(){
       <div class="muted small">${s.kind==='binder'?`${s.page_count} pages · ${s.rows}×${s.cols} pockets · ${s.mode==='set_order'?'set order':'fill in order'}`:(s.capacity?`holds ${s.capacity}`:'no size limit')}</div>
       <div class="chips">${s.sets.length?s.sets.map(x=>`<span class="chip" title="${esc(x.name||'')}">${esc(x.set_code)}</span>`).join(''):'<span class="muted small">any set (general)</span>'}</div>
       <div class="small"><b>${s.count}</b>${cap?` / ${cap}`:''} cards</div>${cap?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}
+      ${s.space&&s.mode==='set_order'?`<div class="muted small" style="margin-top:6px">${s.space.reserved} reserved by sets · ${s.space.free} pockets unreserved</div>`:''}
     </div>`}).join('');
 }
 $('#storage-list').addEventListener('click',e=>{const c=e.target.closest('[data-open]');if(c)openStorage(+c.dataset.open,1)});
@@ -473,10 +482,11 @@ async function openStorage(id,page=1){
         <ul class="set-list">${st.sets.map((x,i)=>{const sec=secBy[x.set_code];return `
           <li class="set-row"><img class="seticon" src="${esc(x.icon||'')}" alt="">
             <div><b>${esc(x.name||x.set_code)}</b> <span class="muted small">${esc(x.set_code.toUpperCase())}</span>
-              ${sec?`<div class="muted small">${sec.count?`pages ${sec.page_from}–${sec.page_to} · ${sec.owned}/${sec.count} owned`:'no cards loaded'}</div>`:''}</div>
+              ${sec?`<div class="muted small">${sec.count?`<b>${sec.count} pockets</b> · pages ${sec.page_from}–${sec.page_to} · ${sec.owned}/${sec.count} owned`:'no cards loaded'}</div>`:''}</div>
             <div class="set-ctl">${setOrder?`<button class="icon-btn" data-mv="${x.set_code}:-1" ${i===0?'disabled':''} title="Move up">↑</button><button class="icon-btn" data-mv="${x.set_code}:1" ${i===st.sets.length-1?'disabled':''} title="Move down">↓</button>`:''}<button class="icon-btn" data-rm="${x.set_code}" title="Remove set">✕</button></div>
-            ${setOrder?`<div class="set-opts"><label><input type="checkbox" data-np="${x.set_code}" ${x.new_page?'checked':''}> starts on new page</label><label><input type="checkbox" data-ex="${x.set_code}" ${x.include_extras?'checked':''}> include extras/variants</label></div>`:''}
+            ${setOrder?`<div class="set-opts"><label><input type="checkbox" data-np="${x.set_code}" ${x.new_page?'checked':''}> starts on new page</label><label><input type="checkbox" data-ex="${x.set_code}" ${x.include_extras?'checked':''}> include extras/variants</label><label><input type="checkbox" data-pc="${x.set_code}" ${x.one_per_card?'checked':''}> one pocket per card</label></div>`:''}
           </li>`}).join('')}</ul>
+        ${st.kind==='binder'?spaceHtml(st):''}
         ${st.layout_pages>st.page_count?`<div class="notes">These sets need ${st.layout_pages} pages but the binder has ${st.page_count}. Add sheets in Edit.</div>`:''}
         <div class="picker"><input id="set-pick" placeholder="+ Assign a set (name or code)" autocomplete="off"><ul id="set-opts" hidden></ul></div>
         ${setOrder?'<p class="muted small">Cards are placed by collector number. Grey cards in the binder are ones you don’t have yet — click one to add it.</p>':''}
@@ -491,13 +501,53 @@ async function openStorage(id,page=1){
   $$('[data-rm]',d).forEach(b=>b.onclick=()=>{if(confirm('Remove this set from the '+st.kind+'?'))setCall(api(`/api/storages/${st.id}/sets/${b.dataset.rm}`,{method:'DELETE'}))});
   $$('[data-np]',d).forEach(b=>b.onchange=()=>setCall(api(`/api/storages/${st.id}/sets/${b.dataset.np}`,{method:'PUT',body:{new_page:b.checked}})));
   $$('[data-ex]',d).forEach(b=>b.onchange=()=>setCall(api(`/api/storages/${st.id}/sets/${b.dataset.ex}`,{method:'PUT',body:{include_extras:b.checked}})));
+  $$('[data-pc]',d).forEach(b=>b.onchange=()=>setCall(api(`/api/storages/${st.id}/sets/${b.dataset.pc}`,{method:'PUT',body:{one_per_card:b.checked}})));
   bindSetPicker(st,setCall);
   if(st.kind==='binder')loadPage(page);else loadBox();
+}
+function askSetOptions(set){
+  const f=$('#addset-form'),dlg=$('#dlg-addset');
+  f.innerHTML=`<h3>Add ${esc(set.name)}</h3><div class="form">
+    <div class="full" style="display:grid;gap:6px">
+      <label class="radio-card"><input type="radio" name="per" value="print" checked><span><b>One pocket per printing</b><small>Every printing (regular, showcase, borderless…) gets its own pocket, in collector-number order.</small></span></label>
+      <label class="radio-card"><input type="radio" name="per" value="card"><span><b>One pocket per card</b><small>One pocket for each card name. Any printing of it goes there; extra copies go to a box.</small></span></label>
+    </div>
+    <label class="chk full"><input type="checkbox" name="include_extras"> Include extras/variants</label>
+    <label class="chk full"><input type="checkbox" name="new_page" checked> Start the set on a new page</label>
+  </div>
+  <div class="dlg-foot"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Add set</button></div>`;
+  return new Promise(res=>{
+    dlg.onclose=()=>res(dlg.returnValue==='ok'?{one_per_card:f.per.value==='card',include_extras:f.include_extras.checked,new_page:f.new_page.checked}:null);
+    dlg.returnValue='';dlg.showModal();
+  });
+}
+function spaceHtml(st){
+  const sp=st.space;if(!sp)return '';
+  const cap=st.capacity_total,pct=n=>(100*n/cap).toFixed(2)+'%',pages=n=>{const p=n/sp.per_page;return p===Math.floor(p)?p:'≈'+p.toFixed(1)};
+  const row=(color,label,n)=>`<div class="space-row"><span><i class="sw" style="background:${color}"></i>${label}</span><span><b>${n}</b> <span class="muted">· ${pages(n)} p.</span></span></div>`;
+  const other=Math.max(0,cap-sp.reserved-sp.padding-sp.free);
+  if(st.mode!=='set_order')return `<h3 class="sub">Space</h3><div class="space">
+    <div class="space-bar"><i style="width:${pct(other)};background:var(--accent)"></i></div>
+    ${row('var(--accent)','Used',other)}${row('var(--panel2)','Free',sp.free)}</div>`;
+  const secs=(st.sections||[]).filter(x=>x.count),shades=[1,.7,.5,.35];
+  const seg=(x,i)=>`<i title="${esc(x.name)}" style="width:${pct(Math.min(x.count,Math.max(0,cap-x.start)))};background:var(--accent);opacity:${shades[i%4]}"></i>`;
+  return `<h3 class="sub">Space</h3><div class="space">
+    <div class="space-bar">${secs.map(seg).join('')}${sp.padding?`<i title="Blank" style="width:${pct(sp.padding)};background:var(--line)"></i>`:''}${other?`<i title="Other cards" style="width:${pct(other)};background:var(--warn)"></i>`:''}</div>
+    ${secs.map((x,i)=>row(`color-mix(in srgb,var(--accent) ${shades[i%4]*100}%,transparent)`,`Reserved · ${esc(x.name)}`,x.count)).join('')}
+    ${sp.padding?row('var(--line)','Blank (set starts on new page)',sp.padding):''}
+    ${other?row('var(--warn)','Other cards after the sets',other):''}
+    ${row('var(--panel2)','Unreserved, free',sp.free)}
+    <div class="space-row muted"><span>Total</span><span>${cap} pockets · ${st.page_count} p.</span></div></div>`;
 }
 function bindSetPicker(st,setCall){
   const inp=$('#set-pick'),ul=$('#set-opts');let list=[],act=0;
   const draw=()=>{ul.hidden=!list.length;ul.innerHTML=list.map((s,i)=>`<li class="${i===act?'act':''}" data-code="${s.code}"><img class="seticon" src="${esc(s.icon||'')}" alt=""><span><b>${esc(s.name)}</b> <span class="muted small">${s.code.toUpperCase()} · ${esc((s.released_at||'').slice(0,4))} · ${s.printed_size||s.card_count||'?'} cards</span></span></li>`).join('')};
-  const pick=code=>{ul.hidden=true;inp.value='';if(st.kind==='binder'&&st.mode==='set_order')toast('Loading set cards from Scryfall…');setCall(api(`/api/storages/${st.id}/sets`,{method:'POST',body:{set_code:code}}))};
+  const pick=async code=>{ul.hidden=true;inp.value='';
+    const setOrder=st.kind==='binder'&&st.mode==='set_order';
+    const opts=setOrder?await askSetOptions(list.find(s=>s.code===code)||{code,name:code}):{};
+    if(!opts)return;
+    if(setOrder)toast('Loading set cards from Scryfall…');
+    setCall(api(`/api/storages/${st.id}/sets`,{method:'POST',body:{set_code:code,...opts}}))};
   inp.addEventListener('input',debounce(async()=>{const q=inp.value.trim();if(!q){list=[];return draw()}try{list=await api('/api/sets?q='+encodeURIComponent(q));act=0;draw()}catch(e){toast(e.message,'err')}},200));
   inp.addEventListener('keydown',e=>{if(ul.hidden)return;if(e.key==='ArrowDown'){act=Math.min(act+1,list.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){act=Math.max(act-1,0);draw();e.preventDefault()}else if(e.key==='Enter'&&list[act]){pick(list[act].code)}else if(e.key==='Escape')ul.hidden=true});
   ul.addEventListener('mousedown',e=>{const li=e.target.closest('li');if(li){e.preventDefault();pick(li.dataset.code)}});
@@ -543,7 +593,7 @@ function openPocket(slot){
       <div><h3>${esc(it.name)} ${it.foil?'<span class="badge foil">Foil</span>':''}</h3>
       <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))}</div>
       <p><b>${where}</b></p>
-      ${s.expected&&s.expected.id!==it.card_id?'<div class="notes">This pocket is reserved for '+esc(s.expected.name)+'.</div>':''}
+      ${s.expected&&s.expected.name!==it.name?'<div class="notes">This pocket is reserved for '+esc(s.expected.name)+'.</div>':''}
       ${moveCtl()}
       </div></div>
       <div class="dlg-foot"><button class="btn danger" id="pk-del">Remove from collection</button><button class="btn" id="pk-close">Close</button></div>`;

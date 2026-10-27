@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS storages(
   created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS storage_sets(
   storage_id INT REFERENCES storages(id) ON DELETE CASCADE, set_code TEXT,
-  position INT, new_page INT DEFAULT 1, include_extras INT DEFAULT 0,
+  position INT, new_page INT DEFAULT 1, include_extras INT DEFAULT 0, one_per_card INT DEFAULT 0,
   PRIMARY KEY(storage_id, set_code));
 CREATE TABLE IF NOT EXISTS items(
   id INTEGER PRIMARY KEY, card_id TEXT REFERENCES cards(id),
@@ -83,6 +83,8 @@ def init_db():
         # older databases: add the column and reload set card lists so it gets filled in
         db.execute("ALTER TABLE cards ADD COLUMN booster INT")
         db.execute("UPDATE sets SET cards_loaded=0")
+    if "one_per_card" not in {r[1] for r in db.execute("PRAGMA table_info(storage_sets)")}:
+        db.execute("ALTER TABLE storage_sets ADD COLUMN one_per_card INT DEFAULT 0")
     db.commit()
     db.close()
 
@@ -233,14 +235,21 @@ def binder_layout(db, st):
                 ensure_set_cards(db, a["set_code"])
             except ApiError:
                 pass  # offline: lay out with the cards we already have
-        cards = db.execute("SELECT id, collector_number, booster FROM cards WHERE set_code=?",
+        every = db.execute("SELECT id, name, collector_number, booster FROM cards WHERE set_code=?",
                            (a["set_code"],)).fetchall()
+        cards = every
         if not a["include_extras"]:
             # brand-new sets can have no booster data yet (every card false) - then the flag tells us nothing
             tagged = any(c["booster"] for c in cards)
             cards = [c for c in cards
                      if is_main(c["collector_number"], a["printed_size"], c["booster"] if tagged else None)]
         cards.sort(key=lambda c: cn_key(c["collector_number"]))
+        if a["one_per_card"]:
+            # one pocket per card name: the lowest-numbered printing stands for it, any printing may fill it
+            first = {}
+            for c in cards:
+                first.setdefault(c["name"], c)
+            cards = list(first.values())
         if a["new_page"] and offset % pp:
             offset += pp - offset % pp
         start = offset
@@ -248,6 +257,10 @@ def binder_layout(db, st):
             by_card[c["id"]] = offset
             by_slot[offset] = c["id"]
             offset += 1
+        if a["one_per_card"]:
+            for c in every:
+                if c["name"] in first:
+                    by_card[c["id"]] = by_card[first[c["name"]]["id"]]
         sections.append({"set_code": a["set_code"], "name": a["name"], "start": start,
                          "end": offset - 1, "count": len(cards)})
     return by_card, by_slot, sections, offset
@@ -294,7 +307,7 @@ def place_in(db, st, card, notes):
                 return None
             if s not in taken:
                 return {"slot": s, "reason": "Its own pocket (set order by collector number)"}
-            if taken[s] == card["id"]:
+            if by_card.get(taken[s]) == s:  # the pocket already holds this card (or, one-per-card, another printing)
                 notes.append(f"{loc_text(st, s)} already holds a copy of this card.")
                 return None
         s = first_free(taken, end, cap, by_slot)
@@ -363,23 +376,33 @@ def get_storage(db, sid):
 def storage_summary(db, st, detail=False):
     st = dict(st)
     st["sets"] = [dict(r) for r in db.execute(
-        """SELECT ss.set_code, ss.new_page, ss.include_extras, ss.position, s.name, s.icon
+        """SELECT ss.set_code, ss.new_page, ss.include_extras, ss.one_per_card, ss.position, s.name, s.icon
            FROM storage_sets ss LEFT JOIN sets s ON s.code=ss.set_code WHERE storage_id=? ORDER BY position""",
         (st["id"],))]
     st["count"] = box_count(db, st["id"])
     st["capacity_total"] = capacity(st)
     if st["kind"] == "binder":
         st["page_count"] = page_count(st)
-    if detail and st["kind"] == "binder" and st["mode"] == "set_order":
-        _, by_slot, sections, end = binder_layout(db, st)
+        cap, pp = capacity(st), per_page(st)
         taken = taken_slots(db, st["id"])
-        pp = per_page(st)
-        for sec in sections:
-            sec["page_from"] = sec["start"] // pp + 1
-            sec["page_to"] = max(sec["end"], sec["start"]) // pp + 1
-            sec["owned"] = sum(1 for s in range(sec["start"], sec["end"] + 1) if taken.get(s) == by_slot.get(s))
-        st["sections"] = sections
-        st["layout_pages"] = -(-end // pp) if end else 0
+        if st["mode"] == "set_order":
+            by_card, _, sections, end = binder_layout(db, st)
+            for sec in sections:
+                sec["page_from"] = sec["start"] // pp + 1
+                sec["page_to"] = max(sec["end"], sec["start"]) // pp + 1
+                sec["owned"] = sum(1 for s in range(sec["start"], sec["end"] + 1)
+                                   if s in taken and by_card.get(taken[s]) == s)
+            reserved = sum(min(x["count"], max(0, cap - x["start"])) for x in sections)
+            # pockets left blank so a set can start on a fresh page
+            padding = max(0, min(end, cap) - reserved)
+            free = sum(1 for s in range(min(end, cap), cap) if s not in taken)
+            if detail:
+                st["sections"] = sections
+                st["layout_pages"] = -(-end // pp) if end else 0
+        else:
+            reserved, padding, free = 0, 0, cap - len(taken)
+        st["space"] = {"reserved": reserved, "padding": padding, "free": free,
+                       "free_pages": free // pp, "per_page": pp}
     return st
 
 
@@ -632,8 +655,9 @@ def r_assign(db, q, b, sid):
     if st["kind"] == "binder" and st["mode"] == "set_order":
         ensure_set_cards(db, code)
     pos = db.execute("SELECT COALESCE(MAX(position),0)+1 FROM storage_sets WHERE storage_id=?", (st["id"],)).fetchone()[0]
-    db.execute("INSERT INTO storage_sets(storage_id,set_code,position,new_page,include_extras) VALUES(?,?,?,?,?)",
-               (st["id"], code, pos, 1 if b.get("new_page", True) else 0, 1 if b.get("include_extras") else 0))
+    db.execute("INSERT INTO storage_sets(storage_id,set_code,position,new_page,include_extras,one_per_card) "
+               "VALUES(?,?,?,?,?,?)", (st["id"], code, pos, 1 if b.get("new_page", True) else 0,
+                                       1 if b.get("include_extras") else 0, 1 if b.get("one_per_card") else 0))
     moves = relayout(db, st)
     return {"storage": storage_summary(db, st, detail=True), "moves": moves}
 
@@ -641,7 +665,7 @@ def r_assign(db, q, b, sid):
 @route("PUT", r"/api/storages/(\d+)/sets/([a-z0-9]+)")
 def r_assign_update(db, q, b, sid, code):
     st = get_storage(db, int(sid))
-    for f in ("new_page", "include_extras"):
+    for f in ("new_page", "include_extras", "one_per_card"):
         if f in b:
             db.execute(f"UPDATE storage_sets SET {f}=? WHERE storage_id=? AND set_code=?",
                        (1 if b[f] else 0, st["id"], code))
