@@ -149,6 +149,48 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .box-list .sec{margin:14px 0 6px;font-weight:700}
 .box-row{display:grid;grid-template-columns:36px 1fr auto auto auto auto;gap:10px;align-items:center;padding:6px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:5px}
 .box-row img{width:36px;aspect-ratio:63/88;border-radius:3px;object-fit:cover}
+/* collections */
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.set-card{padding:14px 16px;text-align:left;cursor:pointer;border:1px solid var(--line)}
+.set-card:hover{border-color:var(--muted)}
+.set-card .seticon{width:26px;height:26px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.tile{padding:12px 14px}
+.tile .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.tile .v{font-size:20px;font-weight:750;font-variant-numeric:tabular-nums;margin-top:2px}
+.tile .s{font-size:12px;color:var(--muted)}
+.btable{width:100%;border-collapse:collapse;font-size:13.5px}
+.btable th{text-align:right;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:650;padding:6px 8px;border-bottom:1px solid var(--line)}
+.btable td{text-align:right;padding:8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.btable th:first-child,.btable td:first-child{text-align:left}
+.verdict{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:5px}
+.verdict.good{background:var(--accent-soft);color:var(--accent)}
+.verdict.meh{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+.verdict.bad{background:var(--warn-soft);color:var(--warn)}
+.table-wrap{overflow-x:auto}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px}
+.ccard{position:relative;display:block;border-radius:7px;overflow:hidden}
+.ccard img{width:100%;aspect-ratio:63/88;object-fit:cover;display:block;border-radius:7px;background:var(--panel2)}
+.ccard.miss img{opacity:var(--ghost);filter:grayscale(1)}
+.ccard.miss:hover img{opacity:.7}
+.ccard .cn{display:block;font-size:11.5px;color:var(--muted);padding:3px 2px 0;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ccard .price-chip{top:5px;right:5px;left:auto;bottom:auto}
+.ccard .own{position:absolute;top:5px;left:5px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:var(--panel);padding:6px 12px;font-weight:600;color:var(--muted)}
+.seg button.on{background:var(--accent-soft);color:var(--ink)}
+.prow{display:grid;grid-template-columns:1fr 90px 90px 90px 150px;gap:10px;align-items:center;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:6px;cursor:pointer;text-align:left;width:100%}
+.prow:hover{border-color:var(--muted)}
+.prow.open{border-color:var(--accent)}
+.prow .n{font-weight:650}
+.prow .num{text-align:right;font-variant-numeric:tabular-nums}
+.prow-head{display:grid;grid-template-columns:1fr 90px 90px 90px 150px;gap:10px;padding:0 12px 6px;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:650}
+.prow-head span:not(:first-child){text-align:right}
+.pdetail{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:-2px 0 10px}
+.plist{list-style:none;margin:0;padding:0;font-size:13px;columns:2 260px;column-gap:24px}
+.plist li{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--line);break-inside:avoid}
+.plist li.new b{color:var(--accent)}
+@media (max-width:700px){.prow,.prow-head{grid-template-columns:1fr 80px 80px}.prow .hide-s,.prow-head .hide-s{display:none}}
 /* dialogs */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(10,10,10,.45)}
@@ -184,6 +226,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
     <button class="tab active" data-tab="find">Find</button>
     <button class="tab" data-tab="add">Add cards</button>
     <button class="tab" data-tab="storage">Binders &amp; boxes</button>
+    <button class="tab" data-tab="collections">Collections</button>
   </nav>
   <div id="stats"></div>
 </div></header>
@@ -222,6 +265,14 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
       <div id="storage-list" class="st-grid"></div>
     </div>
     <div id="storage-detail" hidden></div>
+  </section>
+
+  <section id="view-collections" class="view" hidden>
+    <div id="coll-list-wrap">
+      <div class="toolbar"><div class="picker" style="flex:1;max-width:420px"><input id="coll-pick" placeholder="Look up any set (name or code)" autocomplete="off"><ul id="coll-opts" hidden></ul></div></div>
+      <div id="coll-list" class="set-grid"></div>
+    </div>
+    <div id="coll-detail" hidden></div>
   </section>
 </main>
 
@@ -272,8 +323,9 @@ function setTab(t){
   if(t==='find'){runFind();$('#find-q').focus()}
   if(t==='add')$('#add-q').focus();
   if(t==='storage'){if(S.cur)openStorage(S.cur.id,S.page);else loadStorages()}
+  if(t==='collections'){if(S.coll)openSet(S.coll);else loadCollections()}
 }
-$$('.tab').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='storage'&&S.tab==='storage'){S.cur=null}setTab(b.dataset.tab)});
+$$('.tab').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='storage'&&S.tab==='storage'){S.cur=null}if(b.dataset.tab==='collections'&&S.tab==='collections'){S.coll=null}setTab(b.dataset.tab)});
 async function loadStats(){
   try{const s=await api('/api/stats'),el=$('#stats');S.prices=s.prices;
     el.innerHTML=`${s.cards} cards · ${s.unique} unique · ${s.storages} places · <b class="money" style="color:var(--ink)">${eur(s.value)}</b>`;
@@ -696,6 +748,126 @@ function showMoves(moves){
     <ul class="moves" style="list-style:none;padding:0;max-height:55vh;overflow:auto">${moves.map(m=>`<li><b>${esc(m.name)} <span class="muted small">${esc(m.set_code.toUpperCase())} #${esc(m.collector_number)}</span></b>${esc(m.from)} → <b style="display:inline">${esc(m.to)}</b></li>`).join('')}</ul>
     <div class="dlg-foot"><button class="btn primary" onclick="this.closest('dialog').close()">Done</button></div>`;
   $('#dlg-moves').showModal();
+}
+
+/* ------------------------------------------------------------ collections */
+async function loadCollections(){
+  S.coll=null;$('#coll-detail').hidden=true;$('#coll-list-wrap').hidden=false;
+  const el=$('#coll-list');
+  let sets;try{sets=await api('/api/collection')}catch(e){el.innerHTML=`<div class="empty" style="grid-column:1/-1">${esc(e.message)}</div>`;return}
+  el.innerHTML=sets.length?sets.map(x=>{const pct=x.main_count?Math.round(100*x.owned_main/x.main_count):0;
+    return `<div class="panel set-card" data-set="${esc(x.code)}">
+      <div style="display:flex;gap:10px;align-items:center"><img class="seticon" src="${esc(x.icon||'')}" alt="">
+        <div style="flex:1;min-width:0"><div class="st-name">${esc(x.name)}</div><div class="muted small">${esc(x.code.toUpperCase())} · ${esc((x.released_at||'').slice(0,4))}</div></div>
+        <span class="money">${eur(x.value)}</span></div>
+      <div class="small" style="margin-top:10px">${x.main_count?`<b>${x.owned_main}</b> / ${x.main_count} cards · ${pct}%`:'Open to load the card list'} <span class="muted">· ${x.owned_cards} cop${x.owned_cards===1?'y':'ies'}</span></div>
+      ${x.main_count?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}</div>`}).join('')
+    :'<div class="empty" style="grid-column:1/-1">No sets yet. Add cards, or look up a set above.</div>';
+}
+$('#coll-list').addEventListener('click',e=>{const c=e.target.closest('[data-set]');if(c)openSet(c.dataset.set)});
+(function(){
+  const inp=$('#coll-pick'),ul=$('#coll-opts');let list=[],act=0;
+  const draw=()=>{ul.hidden=!list.length;ul.innerHTML=list.map((s,i)=>`<li class="${i===act?'act':''}" data-code="${s.code}"><img class="seticon" src="${esc(s.icon||'')}" alt=""><span><b>${esc(s.name)}</b> <span class="muted small">${s.code.toUpperCase()} · ${esc((s.released_at||'').slice(0,4))}</span></span></li>`).join('')};
+  const pick=code=>{ul.hidden=true;inp.value='';openSet(code)};
+  inp.addEventListener('input',debounce(async()=>{const q=inp.value.trim();if(!q){list=[];return draw()}try{list=await api('/api/sets?q='+encodeURIComponent(q));act=0;draw()}catch(e){toast(e.message,'err')}},200));
+  inp.addEventListener('keydown',e=>{if(ul.hidden)return;if(e.key==='ArrowDown'){act=Math.min(act+1,list.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){act=Math.max(act-1,0);draw();e.preventDefault()}else if(e.key==='Enter'&&list[act]){pick(list[act].code)}else if(e.key==='Escape')ul.hidden=true});
+  ul.addEventListener('mousedown',e=>{const li=e.target.closest('li');if(li){e.preventDefault();pick(li.dataset.code)}});
+  inp.addEventListener('blur',()=>setTimeout(()=>ul.hidden=true,150));
+})();
+function verdict(ev,price){
+  if(ev==null||!price)return '';
+  const r=ev/price;
+  return r>=1?`<span class="verdict good">Worth it · ${Math.round(r*100)}%</span>`:r>=.75?`<span class="verdict meh">Borderline · ${Math.round(r*100)}%</span>`:`<span class="verdict bad">Buy singles · ${Math.round(r*100)}%</span>`;
+}
+async function openSet(code){
+  S.coll=code;$('#coll-list-wrap').hidden=true;const d=$('#coll-detail');d.hidden=false;
+  d.innerHTML='<div class="empty">Loading the set from Scryfall…</div>';
+  let r;try{r=await api('/api/collection/'+encodeURIComponent(code))}catch(e){toast(e.message,'err');return loadCollections()}
+  if(S.coll!==code)return;
+  const st=r.stats,s=r.set,pct=st.main_count?Math.round(100*st.owned_main/st.main_count):0;
+  const play=r.boosters.find(b=>b.ev_all!=null&&b.price);
+  const tile=(k,v,sub='')=>`<div class="panel tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
+  d.innerHTML=`
+    <div class="detail-head"><button class="btn" id="coll-back">← All sets</button>
+      <div style="flex:1;min-width:200px"><h2 style="display:flex;gap:8px;align-items:center"><img class="seticon" src="${esc(s.icon||'')}" alt="" style="width:24px;height:24px">${esc(s.name)}</h2>
+      <div class="muted small">${esc(s.code.toUpperCase())} · ${esc(s.released_at||'')} · ${esc(s.set_type||'')}</div></div></div>
+    <div class="tiles">
+      ${tile('Completion',`${st.owned_main} / ${st.main_count}`,`${pct}% of the main set`)}
+      ${tile('Copies owned',st.owned_cards,'all printings')}
+      ${tile('Value owned',eur(st.value_owned),'Cardmarket trend')}
+      ${tile('Missing as singles',eur(st.missing_cost),`${st.main_count-st.owned_main} cards`)}
+      ${tile('Full set as singles',eur(st.set_cost),'one of each')}
+    </div>
+    <div class="seg" id="sv" style="margin-bottom:14px"><button data-v="cards" class="on">Cards &amp; boosters</button><button data-v="products">Products</button></div>
+    <div id="sv-cards">
+    <div class="panel" style="padding:14px 16px;margin-bottom:16px">
+      <h3 class="sub">Should I buy boosters?</h3>
+      ${r.boosters.length?`<div class="table-wrap"><table class="btable">
+        <tr><th>Booster</th><th>Price</th><th>Value inside</th><th>Without bulk</th><th>New to you</th><th>Verdict</th></tr>
+        ${r.boosters.map(b=>`<tr><td><a href="https://www.cardmarket.com/en/Magic/Products?idProduct=${b.cardmarket_id}" target="_blank" rel="noopener" style="color:var(--ink)">${esc(b.kind)} ↗</a></td>
+          <td class="money">${eur(b.price)}</td>
+          <td>${b.ev_all!=null?eur(b.ev_all):'<span class="muted">—</span>'}</td>
+          <td>${b.ev_bulkless!=null?eur(b.ev_bulkless):'<span class="muted">—</span>'}</td>
+          <td>${b.ev_new_bulkless!=null?eur(b.ev_new_bulkless):'<span class="muted">—</span>'}</td>
+          <td>${b.ev_bulkless!=null?verdict(b.ev_bulkless,b.price):'<span class="muted small">no estimate for this type</span>'}</td></tr>`).join('')}
+      </table></div>
+      <p class="muted small" style="margin:10px 0 0">Value inside = average Cardmarket price per rarity × the booster's usual slots (rare/mythic, uncommons, commons, wildcard, foil). <b>Without bulk</b> ignores cards under €0.50, which you can't really sell. <b>New to you</b> counts only cards you don't have yet. Verdict compares "without bulk" with the booster price. It's an estimate; showcase/borderless hits aren't counted, so real value is usually a bit higher.</p>
+      ${play&&st.missing_cost?`<p class="small" style="margin:10px 0 0">To finish the set, the missing singles cost <b>${eur(st.missing_cost)}</b>, the price of about <b>${Math.round(st.missing_cost/play.price)}</b> ${esc(play.kind.toLowerCase())}s. A booster gives you about <b>${eur(play.ev_new)}</b> of cards you don't have yet.</p>`:''}`
+      :'<p class="muted small" style="margin:0">No booster prices found on Cardmarket for this set. Press “Update prices” in Binders & boxes if you haven’t since this tab was added.</p>'}
+    </div>
+    <div class="toolbar"><h3 class="sub" style="margin:0">Cards</h3>
+      <div class="seg" id="cf">${['all','missing','owned'].map(k=>`<button data-f="${k}" class="${k==='all'?'on':''}">${k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
+      <label class="small" style="display:flex;gap:5px;align-items:center"><input type="checkbox" id="cx"> show extras/variants</label></div>
+    <div class="cgrid" id="cgrid"></div></div>
+    <div id="sv-products" hidden></div>`;
+  $('#coll-back').onclick=loadCollections;
+  $$('#sv button').forEach(b=>b.onclick=()=>{$$('#sv button').forEach(x=>x.classList.toggle('on',x===b));
+    $('#sv-cards').hidden=b.dataset.v!=='cards';$('#sv-products').hidden=b.dataset.v!=='products';
+    if(b.dataset.v==='products'&&!$('#sv-products').dataset.loaded)loadProducts(code,s.name)});
+  let f='all';
+  const draw=()=>{const ex=$('#cx').checked;
+    const cs=r.cards.filter(c=>(ex||c.main)&&(f==='all'||(f==='owned'?c.owned_name:!c.owned_name)));
+    $('#cgrid').innerHTML=cs.length?cs.map(c=>`<a class="ccard ${c.owned_name?'':'miss'}" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="${esc(c.name)} — open on Cardmarket">
+      <img src="${esc(c.image)}" alt="" loading="lazy">${c.owned?`<span class="own">×${c.owned}</span>`:''}${(c.price??c.price_foil)!=null?`<span class="price-chip">${eur(c.price??c.price_foil)}</span>`:''}
+      <span class="cn">#${esc(c.collector_number)} ${esc(c.name)}</span></a>`).join(''):'<div class="empty" style="grid-column:1/-1">Nothing here.</div>'};
+  $$('#cf button').forEach(b=>b.onclick=()=>{f=b.dataset.f;$$('#cf button').forEach(x=>x.classList.toggle('on',x===b));draw()});
+  $('#cx').onchange=draw;draw();
+}
+
+const PCAT={booster_box:'Booster box',booster_pack:'Booster',bundle:'Bundle',deck:'Precon deck',multiple_decks:'Decks',
+  limited_aid_tool:'Prerelease / draft kit',box_set:'Box set',deck_box:'Deck display',land_station:'Land station',starter_kit:'Starter kit'};
+async function loadProducts(code,setName){
+  const el=$('#sv-products'),reprints=!!S.reprints;el.dataset.loaded='1';
+  el.innerHTML='<div class="empty">Loading products and decklists… the first time can take a minute.</div>';
+  let r;try{r=await api(`/api/collection/${encodeURIComponent(code)}/products?reprints=${reprints?1:0}`)}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;el.dataset.loaded='';return}
+  if(S.coll!==code)return;
+  const short=n=>n.startsWith(setName+' ')?n.slice(setName.length+1):n;
+  const val=(p,v)=>p.cards.length||p.packs.some(x=>x.ev!=null)?eur(v):'<span class="muted" title="Not estimated: collector and special boosters vary too much">n/a</span>';
+  el.innerHTML=`<div class="toolbar"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="rp" ${reprints?'checked':''}> Count reprints I own from other sets as not new</label></div>
+    ${r.products.length?`<div class="prow-head"><span>Product</span><span>Cost</span><span>Value</span><span class="hide-s">New to you</span><span class="hide-s">Verdict</span></div>
+    ${r.products.map((p,i)=>`<button class="prow" data-i="${i}"><span><span class="n">${esc(short(p.name))}</span><br><span class="muted small">${esc(PCAT[p.category]||p.category||'')}${p.set_code!==code?' · '+esc(p.set_code.toUpperCase()):''}</span></span>
+      <span class="num money">${eur(p.cost)}</span><span class="num">${val(p,p.value)}</span><span class="num hide-s">${val(p,p.new_value)}</span>
+      <span class="num hide-s">${p.cost&&(p.cards.length||p.packs.some(x=>x.ev!=null))?verdict(p.value,p.cost):''}</span></button><div class="pdetail" id="pd-${i}" hidden></div>`).join('')}`
+    :'<div class="empty">MTGJSON lists no sealed products for this set.</div>'}
+    <p class="muted small">Contents from MTGJSON, prices from Cardmarket (trend). Value counts every card at its price and boosters at their estimated value; <b>new to you</b> counts each card you don't own once. Collector and other special boosters aren't estimated (n/a). The verdict here includes bulk commons, so it reads higher than the booster verdict on the Cards &amp; boosters view, which leaves out cards under €0.50.</p>`;
+  $('#rp').onchange=e=>{S.reprints=e.target.checked;loadProducts(code,setName)};
+  $$('#sv-products .prow').forEach(b=>b.onclick=()=>{const i=+b.dataset.i,d=$('#pd-'+i);
+    if(!d.hidden){d.hidden=true;b.classList.remove('open');return}
+    b.classList.add('open');d.hidden=false;d.innerHTML=productDetail(r.products[i],reprints)});
+}
+function productDetail(p,reprints){
+  const tile=(k,v,sub='')=>`<div class="panel tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
+  const newCount=new Set(p.cards.filter(c=>c.new).map(c=>c.name)).size,est=p.cards.length||p.packs.some(x=>x.ev!=null);
+  return `<div class="tiles">
+      ${tile('Cost',eur(p.cost),p.cardmarket_id?`<a href="https://www.cardmarket.com/en/Magic/Products?idProduct=${p.cardmarket_id}" target="_blank" rel="noopener" style="color:var(--accent)">Cardmarket ↗</a>`:'not on Cardmarket')}
+      ${tile('Value in cards',est?eur(p.value):'—',p.cost&&est?`${Math.round(100*p.value/p.cost)}% of the cost`:'')}
+      ${tile('New cards for you',est?eur(p.new_value):'—',`${newCount} new card${newCount===1?'':'s'}${reprints?' · reprints counted':''}`)}
+    </div>
+    ${p.packs.length?`<h3 class="sub">Boosters inside</h3><ul class="plist" style="margin-bottom:12px">${p.packs.map(x=>`<li><span>${x.count} × ${esc(x.set_name)} ${esc(x.kind)}</span><b>${x.ev!=null?`${eur(x.ev*x.count)} <span class="muted small">(${eur(x.ev)} each)</span>`:'<span class="muted">not estimated</span>'}</b></li>`).join('')}</ul>`:''}
+    ${p.cards.length?`<h3 class="sub">Cards inside (${p.cards.reduce((a,c)=>a+c.count,0)})</h3><ul class="plist">${p.cards.map(c=>`<li class="${c.new?'new':''}"><span>${c.count>1?c.count+' × ':''}<a href="${esc(cmUrl(c))}" target="_blank" rel="noopener" style="color:var(--ink)">${esc(c.name)}</a> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}${c.foil?' · foil':''}</span></span><b>${eur(c.unit==null?null:c.unit*c.count)}${c.new?' <span class="verdict good" style="padding:0 5px">new</span>':''}</b></li>`).join('')}</ul>`:''}
+    ${p.other.length?`<p class="muted small" style="margin:10px 0 0">Also inside: ${p.other.map(esc).join(' · ')}</p>`:''}
+    ${p.unpriced?`<p class="muted small" style="margin:6px 0 0">${p.unpriced} item${p.unpriced>1?'s':''} couldn't be matched to cards (often a basic land pack) and isn't counted.</p>`:''}
+    ${p.notes.map(n=>`<p class="muted small" style="margin:6px 0 0">${esc(n)}</p>`).join('')}`;
 }
 
 /* ------------------------------------------------------------ boot */

@@ -32,7 +32,10 @@ STATIC = os.path.join(HERE, "static")
 SCRYFALL = "https://api.scryfall.com"
 # Cardmarket's public daily price guide for Magic (all products, trend/avg/low, foil and non-foil)
 CM_PRICE_GUIDE = "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_1.json"
-PRICE_MAX_AGE = 20 * 3600  # refresh prices at start-up when older than this
+CM_PRODUCTS = "https://downloads.s3.cardmarket.com/productCatalog/productList/products_nonsingles_1.json"
+PRICE_MAX_AGE = 20 * 3600
+MTGJSON = "https://mtgjson.com/api/v5"  # set files list sealed products and their exact contents
+MTGJSON_MAX_AGE = 7 * 24 * 3600  # refresh prices at start-up when older than this
 UA = "CardLibraryLocal/1.0 (personal collection tool)"
 
 SCHEMA = """
@@ -65,6 +68,9 @@ CREATE INDEX IF NOT EXISTS idx_items_card ON items(card_id);
 CREATE TABLE IF NOT EXISTS cm_prices(
   id_product INTEGER PRIMARY KEY, trend REAL, trend_foil REAL, avg REAL, avg_foil REAL, low REAL, low_foil REAL);
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS mj_sets(code TEXT PRIMARY KEY, fetched REAL, data TEXT);
+CREATE TABLE IF NOT EXISTS cm_products(id_product INTEGER PRIMARY KEY, name TEXT, category TEXT, id_expansion INT);
+CREATE INDEX IF NOT EXISTS idx_cm_products_name ON cm_products(name);
 """
 
 
@@ -90,6 +96,9 @@ def init_db():
         # older databases: add the column and reload set card lists so it gets filled in
         db.execute("ALTER TABLE cards ADD COLUMN booster INT")
         db.execute("UPDATE sets SET cards_loaded=0")
+    if "parent_set_code" not in {r[1] for r in db.execute("PRAGMA table_info(sets)")}:
+        db.execute("ALTER TABLE sets ADD COLUMN parent_set_code TEXT")
+        db.execute("INSERT OR REPLACE INTO meta VALUES('sets_need_parents','1')")
     if "one_per_card" not in {r[1] for r in db.execute("PRAGMA table_info(storage_sets)")}:
         db.execute("ALTER TABLE storage_sets ADD COLUMN one_per_card INT DEFAULT 0")
     cols = {r[1] for r in db.execute("PRAGMA table_info(cards)")}
@@ -194,6 +203,20 @@ def refresh_prices(force=False):
                     db.execute("INSERT OR REPLACE INTO meta VALUES('prices_date',?)", (data.get("createdAt"),))
                     db.execute("INSERT OR REPLACE INTO meta VALUES('prices_fetched',?)", (str(time.time()),))
                     db.commit()
+            if force or time.time() - last > PRICE_MAX_AGE or \
+                    not db.execute("SELECT 1 FROM cm_products LIMIT 1").fetchone():
+                # sealed products (boosters, displays...) so set pages can show booster prices
+                req = urllib.request.Request(CM_PRODUCTS, headers={"User-Agent": UA})
+                try:
+                    with urllib.request.urlopen(req, timeout=60) as r:
+                        prods = json.load(r).get("products", [])
+                    db.execute("DELETE FROM cm_products")
+                    db.executemany("INSERT OR REPLACE INTO cm_products VALUES(?,?,?,?)",
+                                   [(x["idProduct"], x.get("name"), x.get("categoryName"), x.get("idExpansion"))
+                                    for x in prods])
+                    db.commit()
+                except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+                    pass  # booster prices are optional
             # owned cards without a Cardmarket id (saved by an older version): ask Scryfall, 75 at a time
             ids = [r[0] for r in db.execute(
                 "SELECT DISTINCT c.id FROM cards c JOIN items i ON i.card_id=c.id WHERE c.cardmarket_id IS NULL "
@@ -232,12 +255,14 @@ def ensure_sets(db, force=False):
         return
     data = sf_get("/sets") or {"data": []}
     rows = [(s["code"], s["name"], s.get("released_at"), s.get("card_count"), s.get("printed_size"),
-             s.get("set_type"), s.get("icon_svg_uri")) for s in data["data"] if not s.get("digital")]
+             s.get("set_type"), s.get("icon_svg_uri"), s.get("parent_set_code")) for s in data["data"] if not s.get("digital")]
     db.executemany(
-        """INSERT INTO sets(code,name,released_at,card_count,printed_size,set_type,icon) VALUES(?,?,?,?,?,?,?)
+        """INSERT INTO sets(code,name,released_at,card_count,printed_size,set_type,icon,parent_set_code)
+           VALUES(?,?,?,?,?,?,?,?)
            ON CONFLICT(code) DO UPDATE SET name=excluded.name, released_at=excluded.released_at,
            card_count=excluded.card_count, printed_size=excluded.printed_size,
-           set_type=excluded.set_type, icon=excluded.icon""", rows)
+           set_type=excluded.set_type, icon=excluded.icon, parent_set_code=excluded.parent_set_code""", rows)
+    db.execute("DELETE FROM meta WHERE key='sets_need_parents'")
 
 
 def get_set(db, code):
@@ -306,6 +331,13 @@ def cn_key(cn):
     return (int(m.group(1)), m.group(2)) if m else (10 ** 9, cn or "")
 
 
+def main_set_cards(cards, printed_size):
+    """The main-set cards (no showcase/borderless/bundle extras) out of a set's card rows."""
+    # brand-new sets can have no booster data yet (every card false) - then the flag tells us nothing
+    tagged = any(c["booster"] for c in cards)
+    return [c for c in cards if is_main(c["collector_number"], printed_size, c["booster"] if tagged else None)]
+
+
 def is_main(cn, printed_size, booster=None):
     if not (cn or "").isdigit():
         return False
@@ -336,10 +368,7 @@ def binder_layout(db, st):
                            (a["set_code"],)).fetchall()
         cards = every
         if not a["include_extras"]:
-            # brand-new sets can have no booster data yet (every card false) - then the flag tells us nothing
-            tagged = any(c["booster"] for c in cards)
-            cards = [c for c in cards
-                     if is_main(c["collector_number"], a["printed_size"], c["booster"] if tagged else None)]
+            cards = main_set_cards(cards, a["printed_size"])
         cards.sort(key=lambda c: cn_key(c["collector_number"]))
         if a["one_per_card"]:
             # one pocket per card name: the lowest-numbered printing stands for it, any printing may fill it
@@ -1003,6 +1032,349 @@ def r_item_delete(db, q, b, iid):
     else:
         db.execute("DELETE FROM items WHERE id=?", (it["id"],))
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- collections (sets)
+
+# Rough booster contents per type: (commons, uncommons, rare-or-mythic slots, mythic share of that slot,
+# wildcard slots, foil slots). Wildcard/foil slots use WILD_ODDS. Good enough to judge whether a box is worth it.
+BOOSTER_MODELS = {
+    "Play Booster": (6, 3, 1, 1 / 7, 1, 1),
+    "Draft Booster": (10, 3, 1, 1 / 8, 0, 1 / 3),
+    "Booster": (10, 3, 1, 1 / 8, 0, 1 / 3),
+}
+WILD_ODDS = {"common": .45, "uncommon": .35, "rare": .17, "mythic": .03}
+BOOSTER_KINDS = ("Play Booster", "Draft Booster", "Set Booster", "Collector Booster", "Booster")
+
+
+def owned_by_name(db, code):
+    return {r[0]: r[1] for r in db.execute(
+        "SELECT c.name, SUM(i.qty) FROM items i JOIN cards c ON c.id=i.card_id WHERE c.set_code=? GROUP BY c.name",
+        (code,))}
+
+
+@route("GET", "/api/collection")
+def r_collection(db, q, b):
+    """Sets you own cards in or keep in a binder/box, with completion and value."""
+    codes = [r[0] for r in db.execute(
+        "SELECT DISTINCT c.set_code FROM items i JOIN cards c ON c.id=i.card_id "
+        "UNION SELECT set_code FROM storage_sets")]
+    out = []
+    for code in codes:
+        s = db.execute("SELECT * FROM sets WHERE code=?", (code,)).fetchone()
+        if not s:
+            continue
+        cards = [dict(r) for r in db.execute("SELECT id,name,collector_number,booster FROM cards WHERE set_code=?",
+                                             (code,))]
+        main = main_set_cards(cards, s["printed_size"]) if s["cards_loaded"] else []
+        names = {c["name"] for c in main}
+        owned = owned_by_name(db, code)
+        out.append({"code": code, "name": s["name"], "icon": s["icon"], "released_at": s["released_at"],
+                    "set_type": s["set_type"], "main_count": len(names) or None,
+                    "owned_main": len(names & set(owned)), "owned_cards": sum(owned.values()),
+                    "value": round(db.execute(VALUE_SQL + " WHERE c.set_code=?", (code,)).fetchone()[0], 2)})
+    out.sort(key=lambda x: x["released_at"] or "", reverse=True)
+    return out
+
+
+@route("GET", r"/api/collection/([a-z0-9]+)")
+def r_collection_set(db, q, b, code):
+    s = get_set(db, code)
+    ensure_set_cards(db, code)
+    s = get_set(db, code)
+    cards = [dict(r) for r in db.execute(
+        f"""SELECT c.*, {price_sql(0)} AS price, {price_sql(1)} AS price_foil FROM cards c
+            LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.set_code=?""", (code,))]
+    main_ids = {c["id"] for c in main_set_cards(cards, s["printed_size"])}
+    owned_ids = {r[0]: r[1] for r in db.execute(
+        "SELECT i.card_id, SUM(i.qty) FROM items i JOIN cards c ON c.id=i.card_id WHERE c.set_code=? "
+        "GROUP BY i.card_id", (code,))}
+    owned_names = owned_by_name(db, code)
+    for c in cards:
+        c["main"] = c["id"] in main_ids
+        c["owned"] = owned_ids.get(c["id"], 0)
+        c["owned_name"] = owned_names.get(c["name"], 0)
+    cards.sort(key=lambda c: cn_key(c["collector_number"]))
+    main = [c for c in cards if c["main"]]
+    names = {}
+    for c in main:
+        names.setdefault(c["name"], c)
+    missing = [c for n, c in names.items() if n not in owned_names]
+    stats = {"main_count": len(names), "owned_main": len(names) - len(missing),
+             "owned_cards": sum(owned_names.values()),
+             "value_owned": round(db.execute(VALUE_SQL + " WHERE c.set_code=?", (code,)).fetchone()[0], 2),
+             "missing_cost": round(sum(c["price"] or c["price_foil"] or 0 for c in missing), 2),
+             "set_cost": round(sum(c["price"] or c["price_foil"] or 0 for c in names.values()), 2)}
+    return {"set": dict(s), "cards": cards, "stats": stats, "boosters": booster_analysis(db, s, list(names.values()),
+                                                                                          owned_names)}
+
+
+def booster_ev(main, owned, model, new_only=False, floor=0.0):
+    """Expected card value of one booster: average price per rarity x the model's slots.
+    owned(name) says whether a card counts as already owned (for new_only)."""
+    pool = {}
+    for c in main:
+        if "Basic Land" in (c["type_line"] or ""):
+            continue  # basics come in the land slot, worth ~nothing
+        pool.setdefault(c["rarity"], []).append(c)
+    if not pool:
+        return None
+
+    def avg(rarity, foil=False):
+        cs = pool.get(rarity) or []
+        if not cs:
+            return 0.0
+        tot = 0.0
+        for c in cs:
+            v = (c["price_foil"] if foil else c["price"]) or (c["price"] if foil else c["price_foil"]) or 0
+            if new_only and owned(c["name"]):
+                v = 0
+            tot += v if v >= floor else 0
+        return tot / len(cs)
+
+    com, unc, rm, myth, wild, foil = model
+    v = com * avg("common") + unc * avg("uncommon")
+    v += rm * ((1 - myth) * avg("rare") + myth * avg("mythic"))
+    v += wild * sum(p * avg(r) for r, p in WILD_ODDS.items())
+    v += foil * sum(p * avg(r, foil=True) for r, p in WILD_ODDS.items())
+    return round(v, 2)
+
+
+def booster_analysis(db, s, main, owned_names):
+    """Expected value of a booster from average card prices per rarity, against its Cardmarket price."""
+    owned = owned_names.__contains__
+    out = []
+    for kind in BOOSTER_KINDS:
+        prod = db.execute(
+            "SELECT p.id_product, p.name, g.trend, g.avg, g.low FROM cm_products p "
+            "LEFT JOIN cm_prices g ON g.id_product=p.id_product WHERE p.name=? AND p.category='Magic Booster'",
+            (f'{s["name"]} {kind}',)).fetchone()
+        if not prod:
+            continue
+        price = prod["trend"] or prod["avg"] or prod["low"]
+        d = {"kind": kind, "name": prod["name"], "cardmarket_id": prod["id_product"], "price": price}
+        model = BOOSTER_MODELS.get(kind)
+        if model and booster_ev(main, owned, model) is not None:
+            d.update(ev_all=booster_ev(main, owned, model), ev_bulkless=booster_ev(main, owned, model, floor=0.5),
+                     ev_new=booster_ev(main, owned, model, new_only=True),
+                     ev_new_bulkless=booster_ev(main, owned, model, new_only=True, floor=0.5))
+        out.append(d)
+    return out
+
+
+# ---------------------------------------------------------------- sealed products
+
+PACK_KINDS = {"play": "Play Booster", "draft": "Draft Booster", "default": "Booster",
+              "set": "Set Booster", "collector": "Collector Booster"}
+SKIP_CHILD_TYPES = ("token", "promo", "memorabilia", "minigame", "alchemy", "treasure_chest")
+
+
+def mj_set(db, code):
+    """MTGJSON data for a set, trimmed to what product pages need; cached for a week. None if MTGJSON has no file."""
+    code = code.lower()
+    r = db.execute("SELECT fetched, data FROM mj_sets WHERE code=?", (code,)).fetchone()
+    if r and time.time() - r[0] < MTGJSON_MAX_AGE:
+        return json.loads(r[1])
+    req = urllib.request.Request(f"{MTGJSON}/{code.upper()}.json", headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            d = json.load(resp)["data"]
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            return json.loads(r[1]) if r else None
+        d = None
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        if r:
+            return json.loads(r[1])
+        raise ApiError(502, "Can't reach MTGJSON for product contents - check the internet connection.")
+    data = None
+    if d:
+        data = {"cards": {c["uuid"]: c.get("identifiers", {}).get("scryfallId") for c in d.get("cards", [])},
+                "decks": [{"name": x.get("name"), "products": x.get("sealedProductUuids") or [],
+                           "sources": [c.lower() for c in x.get("sourceSetCodes") or []],
+                           "cards": [[e["uuid"], e.get("count", 1), bool(e.get("isFoil"))]
+                                     for part in ("commander", "mainBoard", "sideBoard") for e in x.get(part) or []]}
+                          for x in d.get("decks", [])],
+                "sealed": [{"uuid": x["uuid"], "name": x.get("name"), "category": x.get("category"),
+                            "subtype": x.get("subtype"), "mcm": (x.get("identifiers") or {}).get("mcmId"),
+                            "contents": x.get("contents") or {}} for x in d.get("sealedProduct", [])]}
+    db.execute("INSERT OR REPLACE INTO mj_sets VALUES(?,?,?)", (code, time.time(), json.dumps(data)))
+    db.commit()
+    return data
+
+
+def sf_collection(db, ids):
+    """Load cards we don't have yet from Scryfall by id (75 per request)."""
+    for k in range(0, len(ids), 75):
+        with _sf_lock:
+            time.sleep(0.11)
+        body = json.dumps({"identifiers": [{"id": x} for x in ids[k:k + 75]]}).encode()
+        req = urllib.request.Request(SCRYFALL + "/cards/collection", data=body, headers={
+            "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                save_cards(db, json.load(r).get("data", []))
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            raise ApiError(502, "Can't reach Scryfall - an internet connection is needed for card lookups.")
+
+
+class ProductValuer:
+    """Unpacks MTGJSON sealed products into cards and boosters and prices them.
+    reprints=True: a card counts as owned if you have it from any set, not just the same set."""
+
+    def __init__(self, db, reprints):
+        self.db, self.reprints = db, reprints
+        self.owned_any, self.owned_in = set(), {}
+        for name, code in db.execute("SELECT DISTINCT c.name, c.set_code FROM items i JOIN cards c ON c.id=i.card_id"):
+            self.owned_any.add(name)
+            self.owned_in.setdefault(code, set()).add(name)
+        self.mains = {}
+
+    def owns(self, name, code):
+        return name in (self.owned_any if self.reprints else self.owned_in.get(code, ()))
+
+    def resolve(self, uuid, codes):
+        for code in codes:
+            m = mj_set(self.db, code) if code else None
+            if m and m["cards"].get(uuid):
+                return m["cards"][uuid]
+        return None
+
+    def expand(self, code, prod, mult, acc, depth=0):
+        c = prod.get("contents") or {}
+        for e in c.get("card", []):
+            sid = self.resolve(e["uuid"], [e.get("set") or code])
+            acc["cards"].append((sid, mult, bool(e.get("foil")))) if sid else acc["unresolved"].append(e.get("name"))
+        for e in c.get("deck", []):
+            dset = (e.get("set") or code).lower()
+            m = mj_set(self.db, dset) or {"decks": []}
+            deck = next((x for x in m["decks"] if prod.get("uuid") in x["products"] and x["name"].startswith(e["name"])),
+                        None) or next((x for x in m["decks"] if x["name"] == e["name"]), None) \
+                or next((x for x in m["decks"] if x["name"].startswith(e["name"])), None)
+            if not deck:
+                acc["unresolved"].append(e["name"])
+                continue
+            for uuid, cnt, foil in deck["cards"]:
+                sid = self.resolve(uuid, [dset] + [x for x in deck["sources"] if x != dset])
+                acc["cards"].append((sid, cnt * mult, foil)) if sid else acc["unresolved"].append(uuid)
+        for e in c.get("pack", []):
+            acc["packs"].append(((e.get("set") or code).lower(), e.get("code"), mult))
+        for e in c.get("sealed", []):
+            sset = (e.get("set") or code).lower()
+            m = mj_set(self.db, sset) or {"sealed": []}
+            sub = next((x for x in m["sealed"] if x["uuid"] == e.get("uuid")), None)
+            if sub and depth < 5:
+                self.expand(sset, sub, mult * (e.get("count") or 1), acc, depth + 1)
+            else:
+                acc["unresolved"].append(e.get("name"))
+        for e in c.get("variable", []):
+            cfgs = e.get("configs") or []
+            if cfgs:
+                acc["notes"].add("Some contents vary between copies; the first option is counted.")
+                self.expand(code, {"uuid": prod.get("uuid"), "contents": cfgs[0]}, mult, acc, depth + 1)
+        for e in c.get("other", []):
+            acc["other"].append(e.get("name"))
+
+    def main_cards(self, code):
+        if code not in self.mains:
+            try:
+                ensure_set_cards(self.db, code)
+            except ApiError:
+                self.mains[code] = []
+                return []
+            s = get_set(self.db, code)
+            rows = [dict(r) for r in self.db.execute(
+                f"""SELECT c.*, {price_sql(0)} AS price, {price_sql(1)} AS price_foil FROM cards c
+                    LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.set_code=?""", (code,))]
+            first = {}  # one entry per card name, like the set page (showcase copies aren't extra slots)
+            for c in sorted(main_set_cards(rows, s["printed_size"]), key=lambda c: cn_key(c["collector_number"])):
+                first.setdefault(c["name"], c)
+            self.mains[code] = list(first.values())
+        return self.mains[code]
+
+    def value(self, code, prod):
+        acc = {"cards": [], "packs": [], "unresolved": [], "other": [], "notes": set()}
+        self.expand(code, prod, 1, acc)
+        ids = list({sid for sid, _, _ in acc["cards"]})
+        have = {r[0] for r in self.db.execute(
+            f"SELECT id FROM cards WHERE id IN ({','.join('?' * len(ids))})", ids)} if ids else set()
+        if set(ids) - have:
+            sf_collection(self.db, list(set(ids) - have))
+        info = {r["id"]: dict(r) for r in self.db.execute(
+            f"""SELECT c.id, c.name, c.set_code, c.collector_number, c.image, c.cardmarket_id,
+                       {price_sql(0)} AS price, {price_sql(1)} AS price_foil FROM cards c
+                LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.id IN ({','.join('?' * len(ids))})""",
+            ids)} if ids else {}
+        cards = {}
+        for sid, cnt, foil in acc["cards"]:
+            c = info.get(sid)
+            if not c:
+                acc["unresolved"].append(sid)
+                continue
+            k = (sid, foil)
+            if k not in cards:
+                unit = (c["price_foil"] if foil else c["price"]) or (c["price"] if foil else c["price_foil"])
+                cards[k] = {**c, "foil": foil, "count": 0, "unit": unit, "new": not self.owns(c["name"], c["set_code"])}
+            cards[k]["count"] += cnt
+        value = sum((c["unit"] or 0) * c["count"] for c in cards.values())
+        # each new card counts once: extra copies (or a foil and a non-foil) aren't new
+        best = {}
+        for c in cards.values():
+            if c["new"] and (c["unit"] or 0) > best.get(c["name"], 0):
+                best[c["name"]] = c["unit"] or 0
+        new_value = sum(best.values())
+        packs = {}
+        for pset, pcode, cnt in acc["packs"]:
+            packs[(pset, pcode)] = packs.get((pset, pcode), 0) + cnt
+        pack_out = []
+        for (pset, pcode), cnt in packs.items():
+            kind = PACK_KINDS.get(pcode)
+            model = BOOSTER_MODELS.get(kind) if kind else None
+            main = self.main_cards(pset) if model else []
+            ev = booster_ev(main, lambda n: self.owns(n, pset), model) if model else None
+            ev_new = booster_ev(main, lambda n: self.owns(n, pset), model, new_only=True) if model else None
+            s = self.db.execute("SELECT name FROM sets WHERE code=?", (pset,)).fetchone()
+            pack_out.append({"set_code": pset, "set_name": s[0] if s else pset.upper(), "kind": kind or pcode,
+                             "count": cnt, "ev": ev, "ev_new": ev_new})
+            if ev is not None:
+                value += ev * cnt
+                new_value += ev_new * cnt
+        cost = None
+        if prod.get("mcm"):
+            r = self.db.execute("SELECT trend, avg, low FROM cm_prices WHERE id_product=?", (prod["mcm"],)).fetchone()
+            cost = r and (r["trend"] or r["avg"] or r["low"])
+        return {"uuid": prod["uuid"], "name": prod["name"], "category": prod.get("category"),
+                "subtype": prod.get("subtype"), "cardmarket_id": prod.get("mcm"), "cost": cost,
+                "value": round(value, 2), "new_value": round(new_value, 2),
+                "cards": sorted(cards.values(), key=lambda c: -(c["unit"] or 0) * c["count"]),
+                "packs": pack_out, "other": acc["other"], "unpriced": len(acc["unresolved"]),
+                "unestimated_packs": sum(p["count"] for p in pack_out if p["ev"] is None),
+                "notes": sorted(acc["notes"])}
+
+
+@route("GET", r"/api/collection/([a-z0-9]+)/products")
+def r_set_products(db, q, b, code):
+    """Sealed products of a set and its sister sets (commander decks etc.), with cost and card value."""
+    if get_meta(db, "sets_need_parents"):
+        ensure_sets(db, force=True)
+    s = get_set(db, code)
+    codes = [code] + [r[0] for r in db.execute(
+        f"SELECT code FROM sets WHERE parent_set_code=? AND set_type NOT IN ({','.join('?' * len(SKIP_CHILD_TYPES))})",
+        (code, *SKIP_CHILD_TYPES))]
+    pv = ProductValuer(db, reprints=q.get("reprints") == "1")
+    out = []
+    for c in codes:
+        m = mj_set(db, c)
+        if not m:
+            continue
+        for prod in m["sealed"]:
+            cat = prod.get("category") or ""
+            if cat.endswith("_case") or (prod.get("name") or "").endswith(" Case") \
+                    or prod.get("subtype") == "mtgo_redemption" or cat == "subset":
+                continue
+            out.append({**pv.value(c, prod), "set_code": c})
+    out.sort(key=lambda x: (x["set_code"] != code, x["category"] or "", x["name"]))
+    return {"set": dict(s), "products": out, "reprints": pv.reprints}
 
 
 @route("GET", "/api/export.csv")
