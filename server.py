@@ -526,16 +526,31 @@ def r_card_search(db, q, b):
     if not text and not setc:
         return []
     cards = None
-    m = re.match(r"^([a-z0-9]{2,6})\s+(\d+\S*)$", text, re.I)
-    if m and not setc:  # "blb 123" -> exact printing
-        c = sf_get(f"/cards/{m.group(1).lower()}/{urllib.parse.quote(m.group(2).lower())}")
+    name, num = text, ""
+    m = re.match(r"^(.*?)\s*#?(\d+[a-z★]?)$", text, re.I)  # trailing collector number: "Mountain 288", "#288"
+    if m:
+        name, num = m.group(1).strip(), m.group(2).lower()
+    m = re.match(r"^([a-z0-9]{2,6})$", name, re.I)
+    if num and not setc and m:  # "blb 123" -> exact printing
+        c = sf_get(f"/cards/{m.group(1).lower()}/{urllib.parse.quote(num)}")
         if c:
             cards = [c]
+    if cards is None and num and setc:  # number plus the Set code box -> exact printing
+        c = sf_get(f"/cards/{setc}/{urllib.parse.quote(num)}")
+        if c and name.lower() in c["name"].lower():  # ignore it if the typed name says otherwise
+            cards = [c]
     if cards is None:
-        qq = (text + (f" e:{setc}" if setc else "")).strip()
+        qq = name if num else text
+        if num:
+            qq += f" cn:{num}"
+        qq = (qq + (f" e:{setc}" if setc else "")).strip()
         data = sf_get("/cards/search", {"q": qq, "unique": "prints", "order": "set" if setc else "released",
                                         "dir": "asc" if setc else "desc", "include_extras": "true"})
         cards = (data or {}).get("data", [])
+        if not cards and num:  # maybe the number is part of the card's name after all
+            data = sf_get("/cards/search", {"q": (text + (f" e:{setc}" if setc else "")).strip(), "unique": "prints",
+                                            "include_extras": "true"})
+            cards = (data or {}).get("data", [])
     cards = [c for c in cards if not c.get("digital")][:120]
     save_cards(db, cards)
     ensure_sets(db)
