@@ -594,11 +594,12 @@ function openPocket(slot){
       <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))}</div>
       <p><b>${where}</b></p>
       ${s.expected&&s.expected.name!==it.name?'<div class="notes">This pocket is reserved for '+esc(s.expected.name)+'.</div>':''}
-      ${moveCtl()}
+      ${editCtl(it)}
+      <h3 class="sub" style="margin-top:14px">Move to</h3>${moveCtl()}
       </div></div>
       <div class="dlg-foot"><button class="btn danger" id="pk-del">Remove from collection</button><button class="btn" id="pk-close">Close</button></div>`;
     $('#pk-del').onclick=async()=>{try{await api('/api/items/'+it.id,{method:'DELETE'});dlg.close();toast('Removed');loadStats();openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
-    bindMove(it,st,dlg);
+    bindMove(it,st,dlg);bindEdit(it,st,dlg);
   }else{const c=s.expected;
     body.innerHTML=`<div class="pocket-dlg"><img src="${esc(c.image_large||c.image)}" alt="">
       <div><h3>${esc(c.name)}</h3><div class="muted small">${esc(c.set_name||'')} · ${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.rarity||'')}</div>
@@ -610,6 +611,28 @@ function openPocket(slot){
   }
   $('#pk-close').onclick=()=>dlg.close();
   dlg.showModal();
+}
+const editCtl=it=>`<div class="opts" style="margin-bottom:6px">
+    <label style="grid-column:1/-1">Printing<select id="ed-print"><option value="${esc(it.card_id)}">${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · ${esc(it.set_name||'')}</option></select></label>
+    <label class="chk"><input type="checkbox" id="ed-foil" ${it.foil?'checked':''}> Foil</label>
+    <label>Condition<select id="ed-cond">${CONDS.map(x=>`<option ${x===it.condition?'selected':''}>${x}</option>`).join('')}</select></label>
+    <label>Language<select id="ed-lang">${LANGS.map(([k,v])=>`<option value="${k}" ${k===it.lang?'selected':''}>${v}</option>`).join('')}</select></label>
+    <label style="justify-content:flex-end"><button type="button" class="btn primary" id="ed-save" disabled>Save changes</button></label>
+  </div>`;
+function bindEdit(it,st,dlg){
+  const sel=$('#ed-print'),save=$('#ed-save'),img=$('#pocket-body .pocket-dlg>img');let prints=[];
+  const dirty=()=>save.disabled=sel.value===it.card_id&&$('#ed-foil').checked===!!it.foil&&$('#ed-cond').value===it.condition&&$('#ed-lang').value===it.lang;
+  ['#ed-foil','#ed-cond','#ed-lang'].forEach(q=>$(q).onchange=dirty);
+  sel.onchange=()=>{const c=prints.find(x=>x.id===sel.value);if(c)img.src=c.image_large||c.image;dirty()};
+  api('/api/cards/search?q='+encodeURIComponent(`!"${it.name}"`)).then(l=>{
+    prints=l.sort((a,b)=>(b.set_code===it.set_code)-(a.set_code===it.set_code)||a.set_code.localeCompare(b.set_code)||parseInt(a.collector_number)-parseInt(b.collector_number));
+    if(!prints.some(x=>x.id===it.card_id))return;
+    sel.innerHTML=prints.map(c=>`<option value="${esc(c.id)}" ${c.id===it.card_id?'selected':''}>${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.set_name||'')}</option>`).join('');
+  }).catch(e=>toast('Could not load printings: '+e.message,'err'));
+  save.onclick=async()=>{
+    try{const r=await api(`/api/items/${it.id}/edit`,{method:'POST',body:{card_id:sel.value,foil:$('#ed-foil').checked,condition:$('#ed-cond').value,lang:$('#ed-lang').value}});
+      dlg.close();toast('Saved');showMoves(r.moves);if(st.kind==='binder'&&r.item.slot!=null)S.highlight=r.item.slot;openStorage(st.id,S.page)}
+    catch(e){toast(e.message,'err')}};
 }
 const moveCtl=()=>`<div class="other"><select id="mv-to"><option value="">Loading…</option></select><button class="btn" id="mv-go" disabled>Move</button></div>`;
 function bindMove(it,st,dlg){
@@ -628,9 +651,10 @@ function openBoxItem(it){
     <div class="muted small">${esc(it.set_name||'')} · ${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}<br>${esc(it.condition)} · ${esc(langName(it.lang))}</div>
     <p><b>${esc(st.name)} — ${esc(it.section||'No section')}${it.qty>1?` · ×${it.qty}`:''}</b></p>
     ${it.qty>1?'<p class="muted small">Moving to a box takes the whole stack; moving to a binder takes one copy.</p>':''}
-    ${moveCtl()}</div></div>
+    ${editCtl(it)}${it.qty>1?`<p class="muted small" style="margin:4px 0 0">Changes apply to all ${it.qty} copies.</p>`:''}
+    <h3 class="sub" style="margin-top:14px">Move to</h3>${moveCtl()}</div></div>
     <div class="dlg-foot"><button class="btn" id="pk-close">Close</button></div>`;
-  bindMove(it,st,dlg);
+  bindMove(it,st,dlg);bindEdit(it,st,dlg);
   $('#pk-close').onclick=()=>dlg.close();
   dlg.showModal();
 }

@@ -843,6 +843,28 @@ def r_item_move(db, q, b, iid):
     return {"item": item_view(db, new_id)}
 
 
+@route("POST", r"/api/items/(\d+)/edit")
+def r_item_edit(db, q, b, iid):
+    """Change printing, foil, condition or language of a card already in the collection."""
+    it = db.execute("SELECT * FROM items WHERE id=?", (int(iid),)).fetchone()
+    if not it:
+        raise ApiError(404, "Card not found in collection")
+    old = card_view(db, it["card_id"])
+    card = card_view(db, b.get("card_id") or it["card_id"])
+    if card["name"] != old["name"]:
+        raise ApiError(400, "You can only switch to another printing of the same card")
+    st = get_storage(db, it["storage_id"])
+    section = it["section"]
+    if st["kind"] == "box" and card["set_code"] != old["set_code"] and section in (old["set_name"], old["set_code"].upper()):
+        section = card["set_name"] or card["set_code"].upper()  # follow the set's box section
+    db.execute("UPDATE items SET card_id=?, foil=?, condition=?, lang=?, section=? WHERE id=?",
+               (card["id"], 1 if b.get("foil", it["foil"]) else 0, b.get("condition") or it["condition"],
+                b.get("lang") or it["lang"], section, it["id"]))
+    # a different printing may belong in a different pocket of a set-order binder
+    moves = relayout(db, st) if card["id"] != old["id"] else []
+    return {"item": item_view(db, it["id"]), "moves": moves}
+
+
 @route("DELETE", r"/api/items/(\d+)")
 def r_item_delete(db, q, b, iid):
     it = db.execute("SELECT * FROM items WHERE id=?", (int(iid),)).fetchone()
