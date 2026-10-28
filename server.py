@@ -62,11 +62,16 @@ CREATE TABLE IF NOT EXISTS items(
   id INTEGER PRIMARY KEY, card_id TEXT REFERENCES cards(id),
   storage_id INT REFERENCES storages(id), slot INT, section TEXT,
   foil INT DEFAULT 0, condition TEXT DEFAULT 'NM', lang TEXT DEFAULT 'en',
-  qty INT DEFAULT 1, added_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  qty INT DEFAULT 1, added_at TEXT DEFAULT CURRENT_TIMESTAMP, price_at_add REAL, price_at_add_est INT DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_items_storage ON items(storage_id);
 CREATE INDEX IF NOT EXISTS idx_items_card ON items(card_id);
 CREATE TABLE IF NOT EXISTS cm_prices(
-  id_product INTEGER PRIMARY KEY, trend REAL, trend_foil REAL, avg REAL, avg_foil REAL, low REAL, low_foil REAL);
+  id_product INTEGER PRIMARY KEY, trend REAL, trend_foil REAL, avg REAL, avg_foil REAL, low REAL, low_foil REAL,
+  avg1 REAL, avg1_foil REAL, avg7 REAL, avg7_foil REAL, avg30 REAL, avg30_foil REAL);
+CREATE TABLE IF NOT EXISTS value_history(
+  day TEXT PRIMARY KEY, value REAL, cards INT, unique_cards INT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS price_history(
+  day TEXT, card_id TEXT, foil INT, price REAL, PRIMARY KEY(day, card_id, foil));
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS decks(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, format TEXT, notes TEXT, source TEXT,
@@ -75,6 +80,12 @@ CREATE TABLE IF NOT EXISTS deck_cards(
   id INTEGER PRIMARY KEY, deck_id INT REFERENCES decks(id) ON DELETE CASCADE, card_id TEXT REFERENCES cards(id),
   qty INT DEFAULT 1, board TEXT DEFAULT 'main', foil INT DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_deck_cards_deck ON deck_cards(deck_id);
+CREATE TABLE IF NOT EXISTS wishlist(
+  uuid TEXT PRIMARY KEY, root TEXT, set_code TEXT, name TEXT, added_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS rec_decks(
+  id INTEGER PRIMARY KEY, format TEXT, source TEXT, name TEXT, url TEXT, meta REAL, popularity INT,
+  image TEXT, cards TEXT, fetched REAL);
+CREATE TABLE IF NOT EXISTS rec_names(name TEXT PRIMARY KEY, card_id TEXT);
 CREATE TABLE IF NOT EXISTS mj_sets(code TEXT PRIMARY KEY, fetched REAL, data TEXT);
 CREATE TABLE IF NOT EXISTS cm_products(id_product INTEGER PRIMARY KEY, name TEXT, category TEXT, id_expansion INT);
 CREATE INDEX IF NOT EXISTS idx_cm_products_name ON cm_products(name);
@@ -110,6 +121,15 @@ def init_db():
         db.execute("INSERT OR REPLACE INTO meta VALUES('sets_need_parents','1')")
     if "one_per_card" not in {r[1] for r in db.execute("PRAGMA table_info(storage_sets)")}:
         db.execute("ALTER TABLE storage_sets ADD COLUMN one_per_card INT DEFAULT 0")
+    if "price_at_add" not in {r[1] for r in db.execute("PRAGMA table_info(items)")}:
+        db.execute("ALTER TABLE items ADD COLUMN price_at_add REAL")
+        db.execute("ALTER TABLE items ADD COLUMN price_at_add_est INT DEFAULT 0")
+        db.execute("INSERT OR REPLACE INTO meta VALUES('backfill_add_price','1')")
+    pcols = {r[1] for r in db.execute("PRAGMA table_info(cm_prices)")}
+    if "avg30" not in pcols:  # 1/7/30-day averages, for the value history: download prices again at start-up
+        for col in ("avg1", "avg1_foil", "avg7", "avg7_foil", "avg30", "avg30_foil"):
+            db.execute(f"ALTER TABLE cm_prices ADD COLUMN {col} REAL")
+        db.execute("DELETE FROM meta WHERE key='prices_fetched'")
     cols = {r[1] for r in db.execute("PRAGMA table_info(cards)")}
     for col, typ in (("cardmarket_id", "INT"), ("eur", "REAL"), ("eur_foil", "REAL")):
         if col not in cols:
@@ -176,10 +196,48 @@ def save_cards(db, cards):
 # ---------------------------------------------------------------- prices
 
 # Price of one copy in EUR: Cardmarket trend (foil trend for foils), falling back to their average and
-# low price, then to Scryfall's EUR price (which also comes from Cardmarket).
+# low price, then to Scryfall's EUR price (which also comes from Cardmarket). Cardmarket writes 0 when it has
+# no data, so zeros are skipped rather than taken as a price.
 def price_sql(foil, c="c", p="p"):
-    return (f"(CASE WHEN {foil} THEN COALESCE({p}.trend_foil,{p}.avg_foil,{p}.low_foil,{c}.eur_foil) "
-            f"ELSE COALESCE({p}.trend,{p}.avg,{p}.low,{c}.eur) END)")
+    pick = lambda *cols: "COALESCE(" + ",".join(f"NULLIF({x},0)" for x in cols) + ")"
+    return (f"(CASE WHEN {foil} THEN {pick(f'{p}.trend_foil', f'{p}.avg_foil', f'{p}.low_foil', f'{c}.eur_foil')} "
+            f"ELSE {pick(f'{p}.trend', f'{p}.avg', f'{p}.low', f'{c}.eur')} END)")
+
+
+def item_price_now(db, iid):
+    r = db.execute(f"""SELECT {price_sql("i.foil")} FROM items i JOIN cards c ON c.id=i.card_id
+                       LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE i.id=?""", (iid,)).fetchone()
+    return r[0] if r else None
+
+
+def add_copies(db, iid, n, basis=None):
+    """Add n copies to a stack, keeping price_at_add the average price paid per copy. basis: their price when
+    added (copies moved from another stack keep theirs); default today's price."""
+    p = basis if basis is not None else item_price_now(db, iid)
+    if p is None:
+        db.execute("UPDATE items SET qty=qty+? WHERE id=?", (n, iid))
+    else:
+        db.execute("UPDATE items SET price_at_add=(COALESCE(price_at_add,?)*qty + ?*?)/(qty+?), qty=qty+? WHERE id=?",
+                   (p, p, n, n, n, iid))
+
+
+def stamp_new_items(db):
+    """New items get today's price as their price when added (runs after every change)."""
+    db.execute(f"""UPDATE items SET price_at_add_est=0, price_at_add=(SELECT {price_sql("items.foil")} FROM cards c
+                   LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.id=items.card_id)
+                   WHERE price_at_add IS NULL""")
+
+
+def backfill_add_prices(db):
+    """Cards added before prices were recorded: estimate the price on the day they were added from Cardmarket's
+    1/7/30-day averages (marked as estimates)."""
+    days = "(julianday(date('now','localtime')) - julianday(date(added_at,'localtime')))"  # calendar days ago
+    pick = lambda n: (f"(CASE WHEN items.foil THEN NULLIF(p.avg{n}_foil,0) ELSE NULLIF(p.avg{n},0) END)")
+    db.execute(f"""UPDATE items SET price_at_add_est=CASE WHEN {days} < 1 THEN 0 ELSE 1 END, price_at_add=(
+                   SELECT COALESCE(CASE WHEN {days} < 1 THEN NULL WHEN {days} < 2 THEN {pick(1)}
+                                        WHEN {days} < 8 THEN {pick(7)} ELSE {pick(30)} END, {price_sql("items.foil")})
+                   FROM cards c LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.id=items.card_id)
+                   WHERE price_at_add IS NULL""")
 
 
 _price_lock = threading.Lock()
@@ -204,11 +262,13 @@ def refresh_prices(force=False):
                         data = json.load(r)
                 except (urllib.error.URLError, TimeoutError, OSError, ValueError):
                     raise ApiError(502, "Can't download Cardmarket prices - check the internet connection.")
-                rows = [(g["idProduct"], g.get("trend"), g.get("trend-foil"), g.get("avg"), g.get("avg-foil"),
-                         g.get("low"), g.get("low-foil")) for g in data.get("priceGuides", [])]
+                keys = ("trend", "trend-foil", "avg", "avg-foil", "low", "low-foil",
+                        "avg1", "avg1-foil", "avg7", "avg7-foil", "avg30", "avg30-foil")
+                rows = [(g["idProduct"], *(g.get(k) for k in keys)) for g in data.get("priceGuides", [])]
                 if rows:
                     db.execute("DELETE FROM cm_prices")
-                    db.executemany("INSERT OR REPLACE INTO cm_prices VALUES(?,?,?,?,?,?,?)", rows)
+                    db.executemany("INSERT OR REPLACE INTO cm_prices(id_product,trend,trend_foil,avg,avg_foil,low,low_foil,"
+                                   "avg1,avg1_foil,avg7,avg7_foil,avg30,avg30_foil) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
                     db.execute("INSERT OR REPLACE INTO meta VALUES('prices_date',?)", (data.get("createdAt"),))
                     db.execute("INSERT OR REPLACE INTO meta VALUES('prices_fetched',?)", (str(time.time()),))
                     db.commit()
@@ -340,10 +400,27 @@ def cn_key(cn):
     return (int(m.group(1)), m.group(2)) if m else (10 ** 9, cn or "")
 
 
-def main_set_cards(cards, printed_size):
+BOOSTER_SET_TYPES = ("expansion", "core", "draft_innovation", "masters")
+
+
+def main_set_cards(cards, printed_size, set_type=None):
     """The main-set cards (no showcase/borderless/bundle extras) out of a set's card rows."""
-    # brand-new sets can have no booster data yet (every card false) - then the flag tells us nothing
     tagged = any(c["booster"] for c in cards)
+    if not tagged and not printed_size and set_type in BOOSTER_SET_TYPES:
+        # brand-new booster sets have no booster data yet (every card false). Variants repeat names of main cards
+        # after the main set, so it ends just before the first repeated name (basic lands repeat inside it).
+        # Not for commander/other sets: they number alternate versions of their commanders first.
+        seen, cut = set(), None
+        for c in sorted((c for c in cards if (c["collector_number"] or "").isdigit()),
+                        key=lambda c: int(c["collector_number"])):
+            if "Basic Land" in (c["type_line"] or ""):
+                continue
+            if c["name"] in seen:
+                cut = int(c["collector_number"])
+                break
+            seen.add(c["name"])
+        if cut:
+            printed_size = cut - 1
     return [c for c in cards if is_main(c["collector_number"], printed_size, c["booster"] if tagged else None)]
 
 
@@ -365,7 +442,7 @@ def binder_layout(db, st):
         return by_card, by_slot, sections, offset
     pp = per_page(st)
     assigned = db.execute(
-        """SELECT ss.*, s.name, s.printed_size, s.cards_loaded FROM storage_sets ss JOIN sets s ON s.code=ss.set_code
+        """SELECT ss.*, s.name, s.printed_size, s.cards_loaded, s.set_type FROM storage_sets ss JOIN sets s ON s.code=ss.set_code
            WHERE storage_id=? ORDER BY position""", (st["id"],)).fetchall()
     for a in assigned:
         if not a["cards_loaded"]:
@@ -373,11 +450,11 @@ def binder_layout(db, st):
                 ensure_set_cards(db, a["set_code"])
             except ApiError:
                 pass  # offline: lay out with the cards we already have
-        every = db.execute("SELECT id, name, collector_number, booster FROM cards WHERE set_code=?",
+        every = db.execute("SELECT id, name, collector_number, booster, type_line FROM cards WHERE set_code=?",
                            (a["set_code"],)).fetchall()
         cards = every
         if not a["include_extras"]:
-            cards = main_set_cards(cards, a["printed_size"])
+            cards = main_set_cards(cards, a["printed_size"], a["set_type"])
         cards.sort(key=lambda c: cn_key(c["collector_number"]))
         if a["one_per_card"]:
             # one pocket per card name: the lowest-numbered printing stands for it, any printing may fill it
@@ -637,6 +714,7 @@ def as_int(v, name, lo=None, hi=None, default=None):
 
 @route("GET", "/api/stats")
 def r_stats(db, q, b):
+    snapshot(db)
     return {"cards": db.execute("SELECT COALESCE(SUM(qty),0) FROM items").fetchone()[0],
             "unique": db.execute("SELECT COUNT(DISTINCT card_id) FROM items").fetchone()[0],
             "storages": db.execute("SELECT COUNT(*) FROM storages").fetchone()[0],
@@ -959,7 +1037,7 @@ def r_item_add(db, q, b):
         same = db.execute("""SELECT id FROM items WHERE storage_id=? AND card_id=? AND foil=? AND condition=? AND lang=?
                              AND COALESCE(section,'')=?""", (st["id"], card["id"], foil, cond, lang, section)).fetchone()
         if same:
-            db.execute("UPDATE items SET qty=qty+? WHERE id=?", (qty, same[0]))
+            add_copies(db, same[0], qty)
             iid = same[0]
         else:
             iid = db.execute("INSERT INTO items(card_id,storage_id,section,foil,condition,lang,qty) VALUES(?,?,?,?,?,?,?)",
@@ -977,8 +1055,10 @@ def r_item_move(db, q, b, iid):
     if st["kind"] == "binder":
         if it["qty"] > 1:  # split one copy off
             db.execute("UPDATE items SET qty=qty-1 WHERE id=?", (it["id"],))
-            new_id = db.execute("INSERT INTO items(card_id,storage_id,foil,condition,lang,qty) VALUES(?,?,?,?,?,1)",
-                                (it["card_id"], st["id"], it["foil"], it["condition"], it["lang"])).lastrowid
+            new_id = db.execute("INSERT INTO items(card_id,storage_id,foil,condition,lang,qty,added_at,price_at_add,"
+                                "price_at_add_est) VALUES(?,?,?,?,?,1,?,?,?)",
+                                (it["card_id"], st["id"], it["foil"], it["condition"], it["lang"], it["added_at"],
+                                 it["price_at_add"], it["price_at_add_est"])).lastrowid
         else:
             new_id = it["id"]
             db.execute("UPDATE items SET slot=NULL, section=NULL, storage_id=? WHERE id=?", (st["id"], new_id))
@@ -1004,7 +1084,7 @@ def r_item_move(db, q, b, iid):
                              AND COALESCE(section,'')=?""",
                           (st["id"], it["card_id"], it["foil"], it["condition"], it["lang"], section)).fetchone()
         if same:  # join the identical stack already in that box
-            db.execute("UPDATE items SET qty=qty+? WHERE id=?", (it["qty"], same[0]))
+            add_copies(db, same[0], it["qty"], it["price_at_add"])
             db.execute("DELETE FROM items WHERE id=?", (it["id"],))
             new_id = same[0]
         else:
@@ -1034,8 +1114,9 @@ def r_item_edit(db, q, b, iid):
         same = db.execute("""SELECT id FROM items WHERE storage_id=? AND card_id=? AND foil=? AND condition=? AND lang=?
                              AND COALESCE(section,'')=COALESCE(?,'') AND id<>?""",
                           (st["id"], card["id"], foil, cond, lang, section, iid)).fetchone()
+        keep = card["id"] == old["id"] and foil == it["foil"]  # same card: the copies keep their price when added
         if same:  # an identical stack is already in the box: add the changed copies to it
-            db.execute("UPDATE items SET qty=qty+? WHERE id=?", (n, same[0]))
+            add_copies(db, same[0], n, it["price_at_add"] if keep else None)
             if n < it["qty"]:
                 db.execute("UPDATE items SET qty=qty-? WHERE id=?", (n, iid))
             else:
@@ -1043,11 +1124,15 @@ def r_item_edit(db, q, b, iid):
             return {"item": item_view(db, same[0]), "moves": []}
         if n < it["qty"]:  # change only some copies: split them off into their own stack
             db.execute("UPDATE items SET qty=qty-? WHERE id=?", (n, iid))
-            iid = db.execute("INSERT INTO items(card_id,storage_id,section,foil,condition,lang,qty) VALUES(?,?,?,?,?,?,?)",
-                             (card["id"], st["id"], section, foil, cond, lang, n)).lastrowid
+            iid = db.execute("INSERT INTO items(card_id,storage_id,section,foil,condition,lang,qty,added_at,price_at_add,"
+                             "price_at_add_est) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                             (card["id"], st["id"], section, foil, cond, lang, n, it["added_at"],
+                              it["price_at_add"] if keep else None, it["price_at_add_est"] if keep else 0)).lastrowid
             return {"item": item_view(db, iid), "moves": []}
     db.execute("UPDATE items SET card_id=?, foil=?, condition=?, lang=?, section=? WHERE id=?",
                (card["id"], foil, cond, lang, section, iid))
+    if card["id"] != old["id"] or foil != it["foil"]:  # another printing/finish: its price when added is today's
+        db.execute("UPDATE items SET price_at_add=NULL WHERE id=?", (iid,))
     # a different printing may belong in a different pocket of a set-order binder
     moves = relayout(db, st) if card["id"] != old["id"] else []
     return {"item": item_view(db, iid), "moves": moves}
@@ -1095,13 +1180,13 @@ def r_collection(db, q, b):
         s = db.execute("SELECT * FROM sets WHERE code=?", (code,)).fetchone()
         if not s:
             continue
-        cards = [dict(r) for r in db.execute("SELECT id,name,collector_number,booster FROM cards WHERE set_code=?",
+        cards = [dict(r) for r in db.execute("SELECT id,name,collector_number,booster,type_line FROM cards WHERE set_code=?",
                                              (code,))]
-        main = main_set_cards(cards, s["printed_size"]) if s["cards_loaded"] else []
+        main = main_set_cards(cards, s["printed_size"], s["set_type"]) if s["cards_loaded"] else []
         names = {c["name"] for c in main}
         owned = owned_by_name(db, code)
         out.append({"code": code, "name": s["name"], "icon": s["icon"], "released_at": s["released_at"],
-                    "set_type": s["set_type"], "main_count": len(names) or None,
+                    "set_type": s["set_type"], "parent_set_code": s["parent_set_code"], "main_count": len(names) or None,
                     "owned_main": len(names & set(owned)), "owned_cards": sum(owned.values()),
                     "value": round(db.execute(VALUE_SQL + " WHERE c.set_code=?", (code,)).fetchone()[0], 2)})
     out.sort(key=lambda x: x["released_at"] or "", reverse=True)
@@ -1116,7 +1201,7 @@ def r_collection_set(db, q, b, code):
     cards = [dict(r) for r in db.execute(
         f"""SELECT c.*, {price_sql(0)} AS price, {price_sql(1)} AS price_foil FROM cards c
             LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.set_code=?""", (code,))]
-    main_ids = {c["id"] for c in main_set_cards(cards, s["printed_size"])}
+    main_ids = {c["id"] for c in main_set_cards(cards, s["printed_size"], s["set_type"])}
     owned_ids = {r[0]: r[1] for r in db.execute(
         "SELECT i.card_id, SUM(i.qty) FROM items i JOIN cards c ON c.id=i.card_id WHERE c.set_code=? "
         "GROUP BY i.card_id", (code,))}
@@ -1138,6 +1223,19 @@ def r_collection_set(db, q, b, code):
              "set_cost": round(sum(c["price"] or c["price_foil"] or 0 for c in names.values()), 2)}
     return {"set": dict(s), "cards": cards, "stats": stats, "boosters": booster_analysis(db, s, list(names.values()),
                                                                                           owned_names)}
+
+
+def booster_model_fits(main, set_name):
+    """The slot model assumes a normal booster set: lots of commons and uncommons, fewer rares. Sets like Mystery
+    Booster (every card a pricey special reprint, more rares than commons) would get absurd values, so skip them."""
+    if "Mystery Booster" in (set_name or ""):
+        return False
+    n = {}
+    for c in main:
+        if "Basic Land" not in (c["type_line"] or ""):
+            n[c["rarity"]] = n.get(c["rarity"], 0) + 1
+    low, high = n.get("common", 0) + n.get("uncommon", 0), n.get("rare", 0) + n.get("mythic", 0)
+    return n.get("common", 0) > 0 and low >= 1.2 * high
 
 
 def slots_per_rarity(model):
@@ -1211,6 +1309,8 @@ def booster_analysis(db, s, main, owned_names):
         price = prod["trend"] or prod["avg"] or prod["low"]
         d = {"kind": kind, "name": prod["name"], "cardmarket_id": prod["id_product"], "price": price}
         model = BOOSTER_MODELS.get(kind)
+        if model and not booster_model_fits(main, s["name"]):
+            model, d["unusual"] = None, True
         if model and booster_ev(main, owned, model) is not None:
             d.update(ev_all=booster_ev(main, owned, model), ev_bulkless=booster_ev(main, owned, model, floor=0.5),
                      ev_new=booster_ev(main, owned, model, new_only=True),
@@ -1232,7 +1332,7 @@ def mj_set(db, code):
     r = db.execute("SELECT fetched, data FROM mj_sets WHERE code=?", (code,)).fetchone()
     if r and time.time() - r[0] < MTGJSON_MAX_AGE:
         cached = json.loads(r[1])
-        if cached is None or cached.get("v") == 2:
+        if cached is None or cached.get("v") == 3:
             return cached
     req = urllib.request.Request(f"{MTGJSON}/{code.upper()}.json", headers={"User-Agent": UA})
     try:
@@ -1249,7 +1349,7 @@ def mj_set(db, code):
     data = None
     if d:
         data = {"cards": {c["uuid"]: c.get("identifiers", {}).get("scryfallId") for c in d.get("cards", [])},
-                "v": 2,
+                "v": 3,
                 "decks": [{"name": x.get("name"), "type": x.get("type"), "products": x.get("sealedProductUuids") or [],
                            "sources": [c.lower() for c in x.get("sourceSetCodes") or []],
                            "cards": [[e["uuid"], e.get("count", 1), bool(e.get("isFoil")), board]
@@ -1258,6 +1358,7 @@ def mj_set(db, code):
                           for x in d.get("decks", [])],
                 "sealed": [{"uuid": x["uuid"], "name": x.get("name"), "category": x.get("category"),
                             "subtype": x.get("subtype"), "mcm": (x.get("identifiers") or {}).get("mcmId"),
+                            "tcg": (x.get("identifiers") or {}).get("tcgplayerProductId"),
                             "contents": x.get("contents") or {}} for x in d.get("sealedProduct", [])]}
     db.execute("INSERT OR REPLACE INTO mj_sets VALUES(?,?,?)", (code, time.time(), json.dumps(data)))
     db.commit()
@@ -1348,7 +1449,8 @@ class ProductValuer:
                 f"""SELECT c.*, {price_sql(0)} AS price, {price_sql(1)} AS price_foil FROM cards c
                     LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.set_code=?""", (code,))]
             first = {}  # one entry per card name, like the set page (showcase copies aren't extra slots)
-            for c in sorted(main_set_cards(rows, s["printed_size"]), key=lambda c: cn_key(c["collector_number"])):
+            for c in sorted(main_set_cards(rows, s["printed_size"], s["set_type"]),
+                            key=lambda c: cn_key(c["collector_number"])):
                 first.setdefault(c["name"], c)
             self.mains[code] = list(first.values())
         return self.mains[code]
@@ -1362,7 +1464,7 @@ class ProductValuer:
         if set(ids) - have:
             sf_collection(self.db, list(set(ids) - have))
         info = {r["id"]: dict(r) for r in self.db.execute(
-            f"""SELECT c.id, c.name, c.set_code, c.collector_number, c.image, c.cardmarket_id,
+            f"""SELECT c.id, c.name, c.set_code, c.collector_number, c.image, c.image_large, c.cardmarket_id,
                        {price_sql(0)} AS price, {price_sql(1)} AS price_foil FROM cards c
                 LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE c.id IN ({','.join('?' * len(ids))})""",
             ids)} if ids else {}
@@ -1396,6 +1498,10 @@ class ProductValuer:
             kind = PACK_KINDS.get(pcode)
             model = BOOSTER_MODELS.get(kind) if kind else None
             main = self.main_cards(pset) if model else []
+            sname = (self.db.execute("SELECT name FROM sets WHERE code=?", (pset,)).fetchone() or [""])[0]
+            if model and not booster_model_fits(main, sname):
+                model, main = None, []
+                acc["notes"].add(f"{sname} boosters don't follow the usual rarity slots, so they aren't estimated.")
             ev = booster_ev(main, lambda n: self.owns(n, pset), model) if model else None
             ev_new = booster_ev(main, lambda n: self.owns(n, pset), model, new_only=True) if model else None
             s = self.db.execute("SELECT name FROM sets WHERE code=?", (pset,)).fetchone()
@@ -1415,6 +1521,8 @@ class ProductValuer:
             cost = r and (r["trend"] or r["avg"] or r["low"])
         return {"uuid": prod["uuid"], "name": prod["name"], "category": prod.get("category"),
                 "subtype": prod.get("subtype"), "cardmarket_id": prod.get("mcm"), "cost": cost,
+                # product photo: TCGplayer serves them by product id (Cardmarket's need an id we don't have)
+                "image": f"https://tcgplayer-cdn.tcgplayer.com/product/{prod['tcg']}_in_400x400.jpg" if prod.get("tcg") else None,
                 "value": round(value, 2), "new_value": round(new_value, 2),
                 "cards": sorted(cards.values(), key=lambda c: -(c["unit"] or 0) * c["count"]),
                 "packs": pack_out, "other": acc["other"], "unpriced": len(acc["unresolved"]),
@@ -1521,7 +1629,7 @@ def box_put(db, sid, card_id, foil, board, delta):
         same = db.execute("""SELECT id FROM items WHERE storage_id=? AND card_id=? AND foil=? AND section=?
                              AND condition='NM' AND lang='en'""", (sid, card_id, foil, sec)).fetchone()
         if same:
-            db.execute("UPDATE items SET qty=qty+? WHERE id=?", (delta, same[0]))
+            add_copies(db, same[0], delta)
         else:
             db.execute("INSERT INTO items(card_id,storage_id,section,foil,qty) VALUES(?,?,?,?,?)",
                        (card_id, sid, sec, foil, delta))
@@ -1797,6 +1905,339 @@ def r_deck_import(db, q, b, did):
     return v
 
 
+@route("GET", "/api/market/sets")
+def r_market_sets(db, q, b):
+    """Every released booster set since a year: what the Market ranks when you haven't picked sets."""
+    ensure_sets(db)
+    since = as_int(q.get("since"), "Year", 1993, 2100, default=2024)
+    rows = db.execute(
+        f"""SELECT code, name, icon, released_at FROM sets WHERE set_type IN ({','.join('?' * len(BOOSTER_SET_TYPES))})
+            AND released_at >= ? AND released_at <= date('now') ORDER BY released_at DESC""",
+        (*BOOSTER_SET_TYPES, f"{since}-01-01"))
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------- wishlist (starred sealed products)
+
+@route("GET", "/api/wishlist")
+def r_wishlist(db, q, b):
+    return [dict(r) for r in db.execute("SELECT * FROM wishlist ORDER BY added_at DESC")]
+
+
+@route("POST", "/api/wishlist")
+def r_wishlist_add(db, q, b):
+    """Star a product. root = the set whose product list it comes from, so its value can be recalculated."""
+    if not b.get("uuid") or not b.get("root"):
+        raise ApiError(400, "Product and set are required")
+    db.execute("INSERT OR REPLACE INTO wishlist(uuid,root,set_code,name) VALUES(?,?,?,?)",
+               (b["uuid"], b["root"].lower(), (b.get("set_code") or b["root"]).lower(), b.get("name")))
+    return r_wishlist(db, q, b)
+
+
+@route("DELETE", r"/api/wishlist/([0-9a-f-]+)")
+def r_wishlist_delete(db, q, b, uuid):
+    db.execute("DELETE FROM wishlist WHERE uuid=?", (uuid,))
+    return r_wishlist(db, q, b)
+
+
+# ---------------------------------------------------------------- hall of fame (top cards, value history)
+
+def snapshot(db, force=False):
+    """Today's collection value and the price of every owned card, for the history chart. Kept up to date while the
+    app is used (at most every 10 minutes), so each day's row ends up as that day's last value."""
+    today = time.strftime("%Y-%m-%d")
+    last = float(get_meta(db, "snap_at") or 0)
+    if not force and time.time() - last < 600 and \
+            db.execute("SELECT 1 FROM value_history WHERE day=?", (today,)).fetchone():
+        return
+    cards, uniq = db.execute("SELECT COALESCE(SUM(qty),0), COUNT(DISTINCT card_id) FROM items").fetchone()
+    value = round(db.execute(VALUE_SQL).fetchone()[0], 2)
+    db.execute("INSERT OR REPLACE INTO value_history VALUES(?,?,?,?,?)",
+               (today, value, cards, uniq, time.strftime("%Y-%m-%d %H:%M")))
+    db.execute(f"""INSERT OR REPLACE INTO price_history
+                   SELECT DISTINCT ?, i.card_id, i.foil, {price_sql("i.foil")} FROM items i JOIN cards c ON c.id=i.card_id
+                   LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id""", (today,))
+    db.execute("INSERT OR REPLACE INTO meta VALUES('snap_at',?)", (str(time.time()),))
+
+
+def avg_sql(n):
+    """Price of a copy from Cardmarket's n-day average (falls back to today's price)."""
+    return (f"(CASE WHEN i.foil THEN COALESCE(NULLIF(p.avg{n}_foil,0), {price_sql('i.foil')}) "
+            f"ELSE COALESCE(NULLIF(p.avg{n},0), {price_sql('i.foil')}) END)")
+
+
+def holdings_history(db):
+    """Collection value per day, counting on each day only the cards you had then (by the date each was added) at
+    that day's prices. Days before price tracking started use Cardmarket's 1/7/30-day averages instead (estimates)."""
+    import datetime as dt
+    items = db.execute("SELECT card_id, foil, qty, date(added_at,'localtime') FROM items").fetchall()
+    if not items:
+        return []
+    snaps = {}
+    for day, cid, foil, price in db.execute(
+            "SELECT day, card_id, foil, price FROM price_history WHERE price IS NOT NULL ORDER BY day"):
+        snaps.setdefault((cid, foil), []).append((day, price))
+    cur = {}
+    for r in db.execute(f"""SELECT DISTINCT i.card_id, i.foil, {price_sql("i.foil")}, {avg_sql(1)}, {avg_sql(7)}, {avg_sql(30)}
+                            FROM items i JOIN cards c ON c.id=i.card_id
+                            LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id"""):
+        cur[(r[0], r[1])] = r[2:]
+    tracked = db.execute("SELECT MIN(day) FROM price_history").fetchone()[0]
+    today = dt.date.today()
+    tracked = dt.date.fromisoformat(tracked) if tracked else today
+    start = min(dt.date.fromisoformat(r[3]) for r in items) - dt.timedelta(days=1)
+    out = []
+    for k in range((today - start).days + 1):
+        day = start + dt.timedelta(days=k)
+        ds, ago, total, cards = day.isoformat(), (today - day).days, 0.0, 0
+        for cid, foil, qty, added in items:
+            if added > ds:
+                continue
+            key, price = (cid, foil), None
+            for d, pr in reversed(snaps.get(key, [])):
+                if d <= ds:
+                    price = pr
+                    break
+            if price is None:  # before tracking: the average closest to that day
+                now, a1, a7, a30 = cur.get(key, (None,) * 4)
+                price = now if ago == 0 else a1 if ago <= 1 else a7 if ago <= 7 else a30
+            total += qty * (price or 0)
+            cards += qty
+        out.append({"day": ds, "value": round(total, 2), "cards": cards, "estimate": day < tracked})
+    return out
+
+
+@route("GET", "/api/honor")
+def r_honor(db, q, b):
+    snapshot(db)
+    today = time.strftime("%Y-%m-%d")
+    top = [dict(r) for r in db.execute(
+        f"""SELECT i.card_id, i.foil, SUM(i.qty) AS qty, MIN(i.id) AS item_id, c.name, c.set_code, c.collector_number,
+                   c.rarity, c.image, c.image_large, c.cardmarket_id, s.name AS set_name,
+                   {price_sql("i.foil")} AS price, {avg_sql(30)} AS avg30, {avg_sql(7)} AS avg7,
+                   SUM(i.qty * i.price_at_add) / NULLIF(SUM(CASE WHEN i.price_at_add IS NULL THEN 0 ELSE i.qty END),0) AS paid
+            FROM items i JOIN cards c ON c.id=i.card_id LEFT JOIN sets s ON s.code=c.set_code
+            LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id
+            GROUP BY i.card_id, i.foil ORDER BY price DESC LIMIT 10""")]
+    for t in top:
+        it = item_view(db, t["item_id"])
+        t["location"], t["storage_id"], t["slot"], t["kind"] = it["location"], it["storage_id"], it["slot"], it["kind"]
+    # portfolio performance: today's price vs the price when each card was added
+    rows = [dict(r) for r in db.execute(
+        f"""SELECT i.card_id, i.foil, SUM(i.qty) AS qty, c.name, c.set_code, c.collector_number, c.image,
+                   c.cardmarket_id, {price_sql("i.foil")} AS price, MIN(date(i.added_at,'localtime')) AS added,
+                   SUM(i.qty * i.price_at_add) / NULLIF(SUM(CASE WHEN i.price_at_add IS NULL THEN 0 ELSE i.qty END),0) AS paid,
+                   MAX(i.price_at_add_est) AS est
+            FROM items i JOIN cards c ON c.id=i.card_id LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id
+            GROUP BY i.card_id, i.foil""")]
+    priced = [r for r in rows if r["paid"] is not None and r["price"] is not None]
+    for r in priced:
+        r["change"] = round((r["price"] - r["paid"]) * r["qty"], 2)
+        r["pct"] = round((r["price"] - r["paid"]) / r["paid"] * 100, 1) if r["paid"] else None
+    basis = sum(r["paid"] * r["qty"] for r in priced)
+    now = sum(r["price"] * r["qty"] for r in priced)
+    perf = {"basis": round(basis, 2), "now": round(now, 2), "change": round(now - basis, 2),
+            "pct": round((now - basis) / basis * 100, 2) if basis else None,
+            "cards": sum(r["qty"] for r in priced), "estimated": sum(r["qty"] for r in priced if r["est"]),
+            "risers": sorted([r for r in priced if r["change"] > 0], key=lambda r: -r["change"])[:8],
+            "fallers": sorted([r for r in priced if r["change"] < 0], key=lambda r: r["change"])[:8],
+            "first_added": min((r["added"] for r in rows), default=None)}
+    return {"top": top, "history": holdings_history(db), "perf": perf,
+            "value": round(db.execute(VALUE_SQL).fetchone()[0], 2),
+            "cards": db.execute("SELECT COALESCE(SUM(qty),0) FROM items").fetchone()[0], "today": today}
+
+
+# ---------------------------------------------------------------- recommended decks (MTGGoldfish, EDHREC)
+
+GOLDFISH = "https://www.mtggoldfish.com"
+EDHREC_JSON = "https://json.edhrec.com/pages"
+REC_COUNT = {"standard": 12, "commander": 20}
+REC_MAX_AGE = 24 * 3600
+
+
+def web_get(url, as_json=False):
+    """Polite fetch for the deck sites: our own user agent, a pause between requests, and no way around bot checks
+    (a Cloudflare challenge is reported as an error)."""
+    time.sleep(0.8)
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json" if as_json else "text/html"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        raise ApiError(502, f"{urllib.parse.urlparse(url).netloc} answered with error {e.code}")
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise ApiError(502, f"Can't reach {urllib.parse.urlparse(url).netloc}")
+    if "Just a moment..." in body[:3000] or "Attention Required!" in body[:3000]:
+        raise ApiError(502, f"{urllib.parse.urlparse(url).netloc} asked for a browser check, so it can't be read here")
+    return json.loads(body) if as_json else body
+
+
+def goldfish_standard():
+    import html as h
+    page = web_get(f"{GOLDFISH}/metagame/standard/full")
+    out = []
+    for tile in re.split(r"<div class='archetype-tile' id=", page)[1:]:
+        href = re.search(r"href='(/archetype/[^'#]+)", tile)
+        name = re.search(r"class='deck-price-paper'>\s*<a [^>]*>([^<]+)</a>", tile)
+        meta = re.search(r"metagame-percentage.*?archetype-tile-statistic-value'>\s*([\d.]+)%", tile, re.S)
+        img = re.search(r"background-image: url\(&#39;([^&]+)&#39;\)", tile)
+        if href and name:
+            out.append({"name": h.unescape(name.group(1)).strip(), "url": GOLDFISH + href.group(1),
+                        "meta": float(meta.group(1)) if meta else None, "image": img.group(1) if img else None})
+        if len(out) >= REC_COUNT["standard"]:
+            break
+    for d in out:
+        arch = web_get(d["url"])
+        m = re.search(r'id="deck_input_deck" value="([^"]*)"', arch)
+        board, cards = "main", []
+        for line in h.unescape(m.group(1)).splitlines() if m else []:
+            line = line.strip()
+            if line.lower() == "sideboard":
+                board = "side"
+                continue
+            mm = re.match(r"^(\d+)\s+(.+)$", line)
+            if mm:
+                cards.append({"name": mm.group(2), "qty": int(mm.group(1)), "board": board})
+        d["cards"] = cards
+    return [d for d in out if d["cards"]]
+
+
+def edhrec_commander():
+    top = web_get(f"{EDHREC_JSON}/commanders/year.json", True)
+    views = top["container"]["json_dict"]["cardlists"][0]["cardviews"][:REC_COUNT["commander"]]
+    out = []
+    for v in views:
+        avg = web_get(f"{EDHREC_JSON}/average-decks/{v['slug']}.json", True)
+        deck = avg.get("deck") or {}
+        cards = [{"name": n, "qty": 1, "board": "commander"} for n in deck.get("commander", [])]
+        for group in (deck.get("cards") or {}).values():
+            cards += [{"name": n, "qty": q, "board": "main"} for n, q in group]
+        out.append({"name": v["name"], "url": "https://edhrec.com" + v["url"], "popularity": v.get("num_decks"),
+                    "image": None, "cards": cards})
+    return out
+
+
+def resolve_names(db, names):
+    """Card names -> a Scryfall card id (cached), loading cards we don't have yet."""
+    have = {r[0]: r[1] for r in db.execute(
+        f"SELECT name, card_id FROM rec_names WHERE name IN ({','.join('?' * len(names))})", names)} if names else {}
+    todo = [n for n in names if n not in have]
+    for k in range(0, len(todo), 75):
+        chunk = todo[k:k + 75]
+        with _sf_lock:
+            time.sleep(0.11)
+        body = json.dumps({"identifiers": [{"name": n} for n in chunk]}).encode()
+        req = urllib.request.Request(SCRYFALL + "/cards/collection", data=body, headers={
+            "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                res = json.load(r)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            raise ApiError(502, "Can't reach Scryfall - an internet connection is needed for card lookups.")
+        save_cards(db, res.get("data", []))
+        missing = {x.get("name") for x in res.get("not_found", [])}
+        found = iter(res.get("data", []))
+        for n in chunk:
+            if n in missing:
+                c = sf_get("/cards/named", {"fuzzy": n})  # e.g. only the front face of a double-faced card
+                if c:
+                    save_cards(db, [c])
+            else:
+                c = next(found, None)
+            if c:
+                have[n] = c["id"]
+                db.execute("INSERT OR REPLACE INTO rec_names VALUES(?,?)", (n, c["id"]))
+    return have
+
+
+@route("POST", "/api/recommended/refresh")
+def r_rec_refresh(db, q, b):
+    fmt = b.get("format")
+    if fmt not in REC_COUNT:
+        raise ApiError(400, "Format must be standard or commander")
+    decks = goldfish_standard() if fmt == "standard" else edhrec_commander()
+    if not decks:
+        raise ApiError(502, "No decks found - the site may have changed its layout")
+    ids = resolve_names(db, sorted({c["name"] for d in decks for c in d["cards"]}))
+    db.execute("DELETE FROM rec_decks WHERE format=?", (fmt,))
+    for d in decks:
+        cards = [{**c, "card_id": ids.get(c["name"])} for c in d["cards"]]
+        img = d["image"]
+        if not img:  # commander art from Scryfall
+            cid = next((c["card_id"] for c in cards if c["board"] == "commander" and c["card_id"]), None)
+            r = db.execute("SELECT image_large FROM cards WHERE id=?", (cid,)).fetchone() if cid else None
+            img = r[0] if r else None
+        db.execute("INSERT INTO rec_decks(format,source,name,url,meta,popularity,image,cards,fetched) "
+                   "VALUES(?,?,?,?,?,?,?,?,?)", (fmt, "MTGGoldfish" if fmt == "standard" else "EDHREC", d["name"],
+                                                d["url"], d.get("meta"), d.get("popularity"), img, json.dumps(cards),
+                                                time.time()))
+    return r_recommended(db, {"format": fmt}, {})
+
+
+@route("GET", "/api/recommended")
+def r_recommended(db, q, b):
+    """Recommended decks with what you'd still have to buy: missing copies at the cheapest printing we know."""
+    fmt = q.get("format") or "standard"
+    rows = [dict(r) for r in db.execute("SELECT * FROM rec_decks WHERE format=? ORDER BY id", (fmt,))]
+    if not rows:
+        return {"format": fmt, "decks": [], "fetched": None}
+    owned = {r[0]: r[1] for r in db.execute(
+        "SELECT c.name, SUM(i.qty) FROM items i JOIN cards c ON c.id=i.card_id GROUP BY c.name")}
+    ids = {c["card_id"] for r in rows for c in json.loads(r["cards"]) if c["card_id"]}
+    info = {r["id"]: dict(r) for r in db.execute(
+        f"SELECT id, name, image, image_large, set_code, collector_number, cardmarket_id, type_line FROM cards "
+        f"WHERE id IN ({','.join('?' * len(ids))})", list(ids))} if ids else {}
+    names = list({c["name"] for c in info.values()})
+    cheapest = {r[0]: r[1] for r in db.execute(
+        f"""SELECT c.name, MIN({price_sql(0)}) FROM cards c LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id
+            WHERE c.name IN ({','.join('?' * len(names))}) GROUP BY c.name""", names)} if names else {}
+    out = []
+    for r in rows:
+        need, cards = {}, []
+        for c in json.loads(r["cards"]):
+            ci = info.get(c["card_id"])
+            if not ci:
+                cards.append({**c, "found": False})
+                continue
+            need[ci["name"]] = need.get(ci["name"], 0) + c["qty"]
+            cards.append({**c, "found": True, "name": ci["name"], "image": ci["image_large"] or ci["image"],
+                          "cardmarket_id": ci["cardmarket_id"], "price": cheapest.get(ci["name"]),
+                          "basic": "Basic Land" in (ci["type_line"] or "")})
+        left = dict(owned)
+        missing_cost, value, total, have = 0.0, 0.0, 0, 0
+        for c in cards:
+            total += c["qty"]
+            if not c["found"]:
+                continue
+            use = min(left.get(c["name"], 0), c["qty"])
+            left[c["name"]] = left.get(c["name"], 0) - use
+            c["owned"], c["missing"] = use, c["qty"] - use
+            have += use
+            value += (c["price"] or 0) * c["qty"]
+            missing_cost += (c["price"] or 0) * c["missing"]
+        out.append({"id": r["id"], "name": r["name"], "url": r["url"], "source": r["source"], "meta": r["meta"],
+                    "popularity": r["popularity"], "image": r["image"], "cards": cards, "total": total,
+                    "owned": have, "value": round(value, 2), "missing_cost": round(missing_cost, 2),
+                    "unmatched": [c["name"] for c in cards if not c["found"]]})
+    out.sort(key=lambda d: d["missing_cost"])
+    return {"format": fmt, "decks": out, "fetched": rows[0]["fetched"]}
+
+
+@route("POST", r"/api/recommended/(\d+)/save")
+def r_rec_save(db, q, b, rid):
+    """Copy a recommended deck into My decks."""
+    r = db.execute("SELECT * FROM rec_decks WHERE id=?", (int(rid),)).fetchone()
+    if not r:
+        raise ApiError(404, "Deck not found")
+    did = db.execute("INSERT INTO decks(name,format,source) VALUES(?,?,?)",
+                     (r["name"], "Standard" if r["format"] == "standard" else "Commander",
+                      f'{r["source"]} ({time.strftime("%Y-%m-%d", time.localtime(r["fetched"]))})')).lastrowid
+    for c in json.loads(r["cards"]):
+        if c.get("card_id"):
+            deck_add(db, did, c["card_id"], c["qty"], c["board"])
+    return deck_view(db, did)
+
+
 @route("GET", "/api/export.csv")
 def r_export(db, q, b):
     buf = io.StringIO()
@@ -1864,6 +2305,8 @@ class Handler(BaseHTTPRequestHandler):
             db = connect()
             try:
                 res = fn(db, q, body, *mm.groups())
+                if method != "GET":
+                    stamp_new_items(db)
                 db.commit()
             except ApiError as e:
                 db.rollback()
@@ -1894,12 +2337,24 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     init_db()
+    db = connect()
+    if get_meta(db, "backfill_add_price"):
+        backfill_add_prices(db)
+        db.execute("DELETE FROM meta WHERE key='backfill_add_price'")
+        db.commit()
+    db.close()
 
     def bg_prices():
         try:
             refresh_prices()
         except ApiError as e:
             print("Prices:", e.msg)
+        db = connect()
+        try:
+            snapshot(db, force=True)
+            db.commit()
+        finally:
+            db.close()
     threading.Thread(target=bg_prices, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://127.0.0.1:{PORT}"

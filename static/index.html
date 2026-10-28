@@ -23,7 +23,7 @@ header{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px s
 .hwrap{max-width:1280px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .logo{font-weight:750;letter-spacing:-.01em;font-size:18px;display:flex;align-items:center;gap:8px}
 .logo i{display:inline-block;width:14px;height:19px;border-radius:2px;background:var(--accent);box-shadow:4px -3px 0 -1px var(--bg),4px -3px 0 0 var(--accent)}
-nav{display:flex;gap:4px;background:var(--panel2);padding:3px;border-radius:9px;border:1px solid var(--line)}
+nav{display:flex;flex-wrap:wrap;gap:4px;background:var(--panel2);padding:3px;border-radius:9px;border:1px solid var(--line)}
 .tab{border:0;background:none;padding:6px 14px;border-radius:7px;color:var(--muted);font-weight:600}
 .tab.active{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
 #stats{margin-left:auto;color:var(--muted);font-size:13px}
@@ -132,7 +132,7 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .picker li{padding:6px 8px;border-radius:6px;cursor:pointer;display:flex;gap:8px;align-items:center}
 .picker li:hover,.picker li.act{background:var(--accent-soft)}
 .pager{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
-.pager .info{color:var(--muted);font-size:13px}
+.pager .pg-info{color:var(--muted);font-size:13px}
 .binder-page{display:grid;gap:10px;background:var(--panel2);padding:14px;border-radius:var(--radius);border:1px solid var(--line);max-width:600px}
 .pocket{aspect-ratio:63/88;border-radius:7px;position:relative;padding:0;border:0;background:none;overflow:hidden}
 .pocket img{width:100%;height:100%;object-fit:cover;display:block;border-radius:7px}
@@ -191,7 +191,7 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .plist{list-style:none;margin:0;padding:0;font-size:13px;columns:2 260px;column-gap:24px}
 .plist li{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--line);break-inside:avoid}
 .plist li.new b{color:var(--accent)}
-@media (max-width:700px){.prow,.prow-head{grid-template-columns:1fr 80px 80px}.prow .hide-s,.prow-head .hide-s{display:none}}
+@media (max-width:700px){.prow,.prow-head,.prow.mk,.prow-head.mk{grid-template-columns:1fr 80px 80px}.prow .hide-s,.prow-head .hide-s{display:none}}
 /* decks */
 .deck-card{padding:0;overflow:hidden;cursor:pointer;border:1px solid var(--line);display:grid;grid-template-columns:86px 1fr}
 .deck-card:hover{border-color:var(--muted)}
@@ -213,7 +213,11 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
   background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.25);
   padding:12px 14px;font:400 12.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;text-align:left;cursor:default}
 .info:hover .tip,.info:focus .tip,.info:focus-within .tip{display:block}
-.info .tip b{font-weight:700}.info .tip p{margin:0 0 8px}.info .tip p:last-child{margin:0}
+.info .tip b{font-weight:700}
+.info .tip .lim{border-top:1px solid var(--line);margin-top:10px;padding-top:8px;color:var(--muted);font-size:12px}
+.info .tip .lim ul{margin:0 0 8px;padding-left:18px}.info .tip .lim li{margin:2px 0}
+.info .tip .lim b{color:var(--ink)}
+.info .tip>.lim:first-child{border:0;margin:0;padding:0;color:var(--ink);font-size:12.5px}.info .tip p{margin:0 0 8px}.info .tip p:last-child{margin:0}
 .info .tip{text-transform:none;letter-spacing:normal;white-space:normal}
 .info.r .tip{left:auto;right:-8px;transform:none}
 .info .tip .f{display:block;margin:6px 0 8px;padding:7px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
@@ -226,6 +230,73 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .grid-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin:10px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650}
 .grid-divider::after{content:"";flex:1;height:1px;background:var(--line);order:1}
 .grid-divider span:last-child{order:2;text-transform:none;letter-spacing:0;font-weight:500}
+.prow.mk,.prow-head.mk{grid-template-columns:1fr 90px 120px 110px 90px}
+@media (max-width:700px){.prow.mk,.prow-head.mk{grid-template-columns:1fr 80px 90px}}
+.mk-sets{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:-4px 0 14px}
+#mk-sets{display:contents}
+.setchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:3px 10px 3px 6px;font-size:12.5px;font-weight:600;color:var(--muted)}
+.setchip img{width:16px;height:16px;object-fit:contain;opacity:.5}
+.setchip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+.setchip.on img{opacity:1}
+.setchip .x{margin-left:2px;opacity:.6}.setchip .x:hover{opacity:1}
+@media (prefers-color-scheme:dark){.setchip img{filter:invert(.9)}}
+.star{display:inline-grid;place-items:center;width:22px;height:22px;margin:-2px 6px 0 -4px;vertical-align:middle;border-radius:6px;font-size:17px;line-height:1;color:var(--muted);cursor:pointer}
+.star:hover{background:var(--panel2);color:#d9a521}
+.star.on{color:#e0aa1c}
+#pimg{position:fixed;z-index:50;pointer-events:none;width:220px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,.3);text-align:center}
+#pimg img{width:100%;border-radius:6px;display:block;background:#fff}
+.plist li[data-img]{cursor:default}.plist li[data-img]:hover{background:var(--panel)}
+#pimg img:not([src]),#pimg.loaded span{display:none}
+@media (hover:none){#pimg{display:none}}
+/* hall of fame */
+:root{--gold:#d9a521;--silver:#9aa6b2;--bronze:#b8763f}
+.hof-hero{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 28px;margin:4px 0 18px}
+.hof-hero .k{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:650}
+.hof-hero .big{font-size:42px;font-weight:800;letter-spacing:-.02em;line-height:1.05;font-variant-numeric:tabular-nums}
+.delta{display:inline-flex;align-items:center;gap:4px;font-weight:700;font-size:13.5px;font-variant-numeric:tabular-nums;padding:2px 8px;border-radius:6px;background:var(--panel2);border:1px solid var(--line)}
+.delta .up{color:var(--accent)}.delta .down{color:var(--warn)}
+.podium{display:grid;grid-template-columns:1fr 1.18fr 1fr;gap:18px;align-items:end;max-width:860px;margin:6px auto 26px}
+.pod{text-align:center;cursor:pointer;position:relative}
+.pod .frame{position:relative;border-radius:14px;padding:10px;background:linear-gradient(160deg,color-mix(in srgb,var(--m) 34%,var(--panel)),var(--panel) 60%);
+  border:1px solid color-mix(in srgb,var(--m) 55%,var(--line));box-shadow:0 10px 30px color-mix(in srgb,var(--m) 22%,transparent)}
+.pod img{width:100%;aspect-ratio:63/88;object-fit:cover;border-radius:4.6%/3.3%;display:block}
+.pod .medal{position:absolute;top:-14px;left:50%;transform:translateX(-50%);width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+  font-weight:800;color:#1d1b18;background:radial-gradient(circle at 35% 30%,#fff8 0,transparent 45%),var(--m);box-shadow:0 2px 8px #0005;border:2px solid var(--panel)}
+.pod.first .frame{padding:12px}
+.pod .nm{font-weight:750;margin-top:10px;line-height:1.25}
+.pod .pr{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.pod.first .pr{font-size:30px}
+.pod .sub,.rest .sub{font-size:12px;color:var(--muted)}
+.pod:hover .frame,.rest-card:hover img{transform:translateY(-3px)}
+.pod .frame,.rest-card img{transition:transform .15s ease}
+.rest{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px;margin-bottom:26px}
+.rest-card{cursor:pointer;text-align:center;position:relative}
+.rest-card img{width:100%;aspect-ratio:63/88;object-fit:cover;border-radius:4.6%/3.3%;display:block;box-shadow:var(--shadow)}
+.rest-card .rk{position:absolute;top:6px;left:6px;background:var(--ink);color:var(--bg);font-weight:800;font-size:12px;padding:1px 7px;border-radius:6px}
+.rest-card .pr{font-weight:750;font-variant-numeric:tabular-nums;margin-top:6px}
+.rest-card .nm{font-size:12.5px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:820px){.rest{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:560px){.podium{gap:8px}.pod .pr{font-size:18px}.pod.first .pr{font-size:21px}.rest{grid-template-columns:repeat(3,minmax(0,1fr))}.hof-hero .big{font-size:34px}}
+.chart-panel{padding:14px 16px 10px;position:relative}
+#hof-chart svg{display:block;width:100%;height:260px;overflow:visible}
+.chart-panel .grid line{stroke:var(--line);stroke-width:1}
+.chart-panel .axis text{fill:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.chart-tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:7px 10px;font-size:12.5px;white-space:nowrap;transform:translate(-50%,-100%);z-index:3}
+.chart-tip b{font-variant-numeric:tabular-nums}
+.perf-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+@media (max-width:820px){.perf-cols{grid-template-columns:1fr}}
+.perf-col{padding:12px 14px}
+.perf-row{display:grid;grid-template-columns:32px 1fr auto 74px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);color:inherit;text-decoration:none}
+.perf-row:last-child{border-bottom:0}
+.perf-row img{width:32px;aspect-ratio:63/88;border-radius:3px;object-fit:cover}
+.perf-row .pn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+.perf-row .pp{white-space:nowrap;font-variant-numeric:tabular-nums}
+.perf-row .pc{text-align:right;font-weight:750;font-variant-numeric:tabular-nums;line-height:1.2}
+.perf-row:hover .pn b{text-decoration:underline}
+.prow.rec{grid-template-columns:54px 1fr 120px 110px}
+.rec-img img{width:54px;aspect-ratio:63/88;object-fit:cover;border-radius:4px;display:block}
+.prow.rec .bar{display:block;margin:6px 0 2px}
+@media (max-width:700px){.prow.rec{grid-template-columns:46px 1fr 96px}}
 /* dialogs */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(10,10,10,.45)}
@@ -263,6 +334,9 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
     <button class="tab" data-tab="storage">Binders &amp; boxes</button>
     <button class="tab" data-tab="collections">Collections</button>
     <button class="tab" data-tab="decks">Decks</button>
+    <button class="tab" data-tab="market">Market</button>
+    <button class="tab" data-tab="wishlist">Wishlist</button>
+    <button class="tab" data-tab="honor">Hall of fame</button>
   </nav>
   <div id="stats"></div>
 </div></header>
@@ -311,12 +385,39 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
     <div id="coll-detail" hidden></div>
   </section>
 
+  <section id="view-market" class="view" hidden>
+    <div class="toolbar">
+      <div class="seg" id="mk-cat"></div>
+      <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="mk-rp"> Count reprints I own from other sets as not new</label>
+      <button class="btn" id="mk-reload" style="margin-left:auto">Recalculate</button>
+    </div>
+    <div class="mk-sets"><span class="muted small">Sets:</span><span id="mk-sets"></span>
+      <span class="picker" style="width:200px"><input id="mk-add" placeholder="+ Add a set" autocomplete="off"><ul id="mk-opts" hidden></ul></span>
+      <button class="btn sm" id="mk-mine" title="Select the sets you collect">My sets</button>
+      <button class="btn sm" id="mk-none" title="Clear the list: rank products of all sets">All sets</button></div>
+    <div id="mk-progress"></div>
+    <div id="market"></div>
+  </section>
+
+  <section id="view-wishlist" class="view" hidden>
+    <div class="toolbar"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="wl-rp"> Count reprints I own from other sets as not new</label></div>
+    <div id="wishlist"></div>
+  </section>
+
+  <section id="view-honor" class="view" hidden><div id="honor"></div></section>
+
   <section id="view-decks" class="view" hidden>
+    <div class="seg" id="deck-view" style="margin-bottom:14px"><button data-v="mine" class="on">My decks</button><button data-v="rec">Recommended</button></div>
     <div id="deck-list-wrap">
       <div class="toolbar"><button class="btn primary" id="deck-new">+ New deck</button><button class="btn" id="deck-precon">From a precon</button></div>
       <div id="deck-list" class="set-grid"></div>
     </div>
     <div id="deck-detail" hidden></div>
+    <div id="rec-wrap" hidden>
+      <div class="toolbar"><div class="seg" id="rec-fmt"><button data-f="standard" class="on">Standard</button><button data-f="commander">Commander</button></div>
+        <span class="muted small" id="rec-src"></span><button class="btn" id="rec-refresh" style="margin-left:auto">Refresh</button></div>
+      <div id="rec-list"></div>
+    </div>
   </section>
 </main>
 
@@ -326,6 +427,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 <dialog id="dlg-deck"><div class="dlg" id="deck-dlg-body"></div></dialog>
 <dialog id="dlg-moves"><div class="dlg" id="moves-body"></div></dialog>
 <div id="toast"></div>
+<div id="pimg" hidden><img alt=""><span class="muted small">loading…</span></div>
 
 <script>
 const $=(s,el=document)=>el.querySelector(s);
@@ -363,15 +465,20 @@ function pocketMap(rows,cols,r,c){
 const dot=c=>`<span class="dot" style="background:${esc(c||'var(--accent)')}"></span>`;
 
 /* ------------------------------------------------------------ tabs & stats */
+// The address keeps where you are (tab, binder page, set, deck), so reloading the page stays there.
+function setHash(h){h='#'+h;if(location.hash!==h)history.replaceState(null,'',h)}
 function setTab(t){
-  S.tab=t;
+  S.tab=t;setHash(t);
   $$('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
   $$('.view').forEach(v=>v.hidden=v.id!=='view-'+t);
   if(t==='find'){runFind();$('#find-q').focus()}
   if(t==='add')$('#add-q').focus();
   if(t==='storage'){if(S.cur)openStorage(S.cur.id,S.page);else loadStorages()}
   if(t==='collections'){if(S.coll)openSet(S.coll);else loadCollections()}
-  if(t==='decks'){if(S.deck)openDeck(S.deck);else loadDecks()}
+  if(t==='decks'){if(S.deckView==='rec')loadRecommended();else if(S.deck)openDeck(S.deck);else loadDecks()}
+  if(t==='market'&&!S.market)loadMarket()
+  if(t==='wishlist')loadWishlist()
+  if(t==='honor')loadHonor()
 }
 $$('.tab').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='storage'&&S.tab==='storage'){S.cur=null}if(b.dataset.tab==='collections'&&S.tab==='collections'){S.coll=null}if(b.dataset.tab==='decks'&&S.tab==='decks'){S.deck=null}setTab(b.dataset.tab)});
 async function loadStats(){
@@ -402,6 +509,7 @@ function itemRow(it){
 let findSeq=0;
 const runFind=debounce(async()=>{
   const q=$('#find-q').value.trim(),el=$('#find-results'),seq=++findSeq;
+  if(S.tab==='find')setHash('find'+(q?'?q='+encodeURIComponent(q):''));
   try{
     const items=await api('/api/items?q='+encodeURIComponent(q));
     S.findItems=items;
@@ -515,7 +623,7 @@ async function putCard(storage_id,slot){
 /* ------------------------------------------------------------ storage list */
 async function refreshStorages(){S.storages=await api('/api/storages');return S.storages}
 async function loadStorages(){
-  S.cur=null;$('#storage-detail').hidden=true;$('#storage-list-wrap').hidden=false;
+  S.cur=null;$('#storage-detail').hidden=true;$('#storage-list-wrap').hidden=false;setHash('storage');
   await refreshStorages();
   const el=$('#storage-list');
   if(!S.storages.length){el.innerHTML='<div class="empty" style="grid-column:1/-1">No binders or boxes yet. Create your first one above.</div>';return}
@@ -583,7 +691,7 @@ function storageForm(kind,st){
 async function openStorage(id,page=1){
   let st;
   try{st=await api('/api/storages/'+id)}catch(e){toast(e.message,'err');return loadStorages()}
-  S.cur=st;S.page=page;
+  S.cur=st;S.page=page;setHash(`storage/${st.id}/${page}`);
   $('#storage-list-wrap').hidden=true;
   const d=$('#storage-detail');d.hidden=false;
   const setOrder=st.kind==='binder'&&st.mode==='set_order';
@@ -679,7 +787,7 @@ function bindSetPicker(st,setCall){
 async function loadPage(n){
   const st=S.cur;
   let r;try{r=await api(`/api/storages/${st.id}/page?n=${n}`)}catch(e){return toast(e.message,'err')}
-  S.page=r.page;S.pageSlots=r.slots;
+  S.page=r.page;S.pageSlots=r.slots;if(S.tab==='storage')setHash(`storage/${st.id}/${r.page}`);
   const hl=S.highlight;S.highlight=null;
   const opts=[];for(let i=1;i<=r.page_count;i++)opts.push(`<option value="${i}" ${i===r.page?'selected':''}>Page ${i}</option>`);
   $('#st-content').innerHTML=`
@@ -687,7 +795,7 @@ async function loadPage(n){
       <button class="btn" id="pg-prev" ${r.page<=1?'disabled':''}>←</button>
       <select id="pg-sel">${opts.join('')}</select>
       <button class="btn" id="pg-next" ${r.page>=r.page_count?'disabled':''}>→</button>
-      <span class="info">${r.side?`Sheet ${r.sheet}, ${r.side}`:`Sheet ${r.sheet}`} of ${st.sheets}${r.sections.length?' · '+esc(r.sections.join(', ')):''}</span>
+      <span class="pg-info">${r.side?`Sheet ${r.sheet}, ${r.side}`:`Sheet ${r.sheet}`} of ${st.sheets}${r.sections.length?' · '+esc(r.sections.join(', ')):''}</span>
     </div>
     <div class="binder-page" style="grid-template-columns:repeat(${st.cols},minmax(0,1fr))">
       ${r.slots.map(s=>{const h=s.slot===hl?'hl':'';
@@ -810,7 +918,7 @@ function showMoves(moves){
 
 /* ------------------------------------------------------------ collections */
 async function loadCollections(){
-  S.coll=null;$('#coll-detail').hidden=true;$('#coll-list-wrap').hidden=false;
+  S.coll=null;S.collView=null;$('#coll-detail').hidden=true;$('#coll-list-wrap').hidden=false;setHash('collections');
   const el=$('#coll-list');
   let sets;try{sets=await api('/api/collection')}catch(e){el.innerHTML=`<div class="empty" style="grid-column:1/-1">${esc(e.message)}</div>`;return}
   el.innerHTML=sets.length?sets.map(x=>{const pct=x.main_count?Math.round(100*x.owned_main/x.main_count):0;
@@ -838,7 +946,9 @@ function verdict(ev,price){
   return r>=1?`<span class="verdict good">Worth it · ${Math.round(r*100)}%</span>`:r>=.75?`<span class="verdict meh">Borderline · ${Math.round(r*100)}%</span>`:`<span class="verdict bad">Buy singles · ${Math.round(r*100)}%</span>`;
 }
 async function openSet(code){
+  if(S.coll!==code)S.collView=null;
   S.coll=code;$('#coll-list-wrap').hidden=true;const d=$('#coll-detail');d.hidden=false;
+  setHash(`collections/${code}${S.collView==='products'?'/products':''}`);
   d.innerHTML='<div class="empty">Loading the set from Scryfall…</div>';
   let r;try{r=await api('/api/collection/'+encodeURIComponent(code))}catch(e){toast(e.message,'err');return loadCollections()}
   if(S.coll!==code)return;
@@ -859,7 +969,7 @@ async function openSet(code){
     <div class="seg" id="sv" style="margin-bottom:14px"><button data-v="cards" class="on">Cards &amp; boosters</button><button data-v="products">Products</button></div>
     <div id="sv-cards">
     <div class="panel" style="padding:14px 16px;margin-bottom:16px">
-      <h3 class="sub">Should I buy boosters?</h3>
+      <h3 class="sub" style="display:flex;gap:6px;align-items:center">Should I buy boosters? ${info(LIMITS)}</h3>
       ${r.boosters.length?`<div class="table-wrap"><table class="btable">
         <tr><th>Booster</th><th>Price</th><th>Value inside</th><th>Without bulk</th><th>New to you</th><th>Verdict</th></tr>
         ${r.boosters.map(b=>`<tr><td><a href="https://www.cardmarket.com/en/Magic/Products?idProduct=${b.cardmarket_id}" target="_blank" rel="noopener" style="color:var(--ink)">${esc(b.kind)} ↗</a></td>
@@ -869,7 +979,7 @@ async function openSet(code){
           <td>${b.ev_new_bulkless!=null?eur(b.ev_new_bulkless):'<span class="muted">—</span>'}</td>
           <td>${b.ev_bulkless!=null?verdict(b.ev_bulkless,b.price):'<span class="muted small">no estimate for this type</span>'}</td></tr>`).join('')}
       </table></div>
-      <p class="muted small" style="margin:10px 0 0">Value inside = average Cardmarket price per rarity × the booster's usual slots (rare/mythic, uncommons, commons, wildcard, foil). <b>Without bulk</b> ignores cards under €0.50, which you can't really sell. <b>New to you</b> counts only cards you don't have yet. Verdict compares "without bulk" with the booster price. It's an estimate; showcase/borderless hits aren't counted, so real value is usually a bit higher.</p>
+      <p class="muted small" style="margin:10px 0 0">Value inside = average Cardmarket price per rarity × the booster's usual slots (rare/mythic, uncommons, commons, wildcard, foil). <b>Without bulk</b> ignores cards under €0.50, which you can't really sell. <b>New to you</b> counts only cards you don't have yet. Verdict compares "without bulk" with the booster price. It's an estimate that leaves out showcase/borderless variants, Special Guests and collector boosters, so the real value is usually higher (see i).</p>
       ${play&&st.missing_cost?`<p class="small" style="margin:10px 0 0">To finish the set, the missing singles cost <b>${eur(st.missing_cost)}</b>, the price of about <b>${Math.round(st.missing_cost/play.price)}</b> ${esc(play.kind.toLowerCase())}s. A booster gives you about <b>${eur(play.ev_new)}</b> of cards you don't have yet.</p>`:''}`
       :'<p class="muted small" style="margin:0">No booster prices found on Cardmarket for this set. Press “Update prices” in Binders & boxes if you haven’t since this tab was added.</p>'}
     </div>
@@ -881,7 +991,9 @@ async function openSet(code){
   $('#coll-back').onclick=loadCollections;
   $$('#sv button').forEach(b=>b.onclick=()=>{$$('#sv button').forEach(x=>x.classList.toggle('on',x===b));
     $('#sv-cards').hidden=b.dataset.v!=='cards';$('#sv-products').hidden=b.dataset.v!=='products';
+    S.collView=b.dataset.v;setHash(`collections/${code}${b.dataset.v==='products'?'/products':''}`);
     if(b.dataset.v==='products'&&!$('#sv-products').dataset.loaded)loadProducts(code,s.name)});
+  if(S.collView==='products')$('#sv button[data-v=products]').click();
   let f='all';
   const draw=()=>{const ex=$('#cx').checked;
     const state=c=>c.owned?'owned':c.owned_name?'other':'missing';
@@ -893,6 +1005,13 @@ async function openSet(code){
   $('#cx').onchange=draw;draw();
 }
 
+const LIMITS=`<div class="lim"><p><b>Not counted, so the real value of a booster is usually higher:</b></p>
+    <ul><li>showcase, borderless and extended-art versions that can land in the rare, wildcard and foil slots (for sets like The Hobbit this is most of the value)</li>
+    <li>foil versions of those variants</li>
+    <li>Special Guests, The List, bonus sheets and serialized cards</li>
+    <li>Collector and Set Boosters at all (shown as n/a)</li></ul>
+    <p>Wizards doesn't publish the odds for these, so they're left out rather than guessed.</p>
+    <p><b>Can overstate it:</b> trend is what cards sell for on Cardmarket, not what you'd get for them; cheap cards hardly sell (see “Without bulk”), and prices of rarely sold cards jump around.</p></div>`;
 const info=(html,cls='')=>`<span class="info ${cls}" tabindex="0" aria-label="How this is calculated">i<span class="tip" role="tooltip">${html}</span></span>`;
 const pbar=r=>`p&#772;<sub>${r}</sub>`;
 const INFO={
@@ -904,16 +1023,23 @@ const INFO={
     <p class="w">q<sub>i</sub> copies of card i at price p<sub>i</sub> (Cardmarket trend, or foil trend for foil copies). n<sub>b</sub> boosters of type b, each worth EV<sub>b</sub>:</p>
     <span class="f">EV<sub>play</sub> = 6${pbar('C')} + 3${pbar('U')} + (<sup>6</sup>&frasl;<sub>7</sub>${pbar('R')} + <sup>1</sup>&frasl;<sub>7</sub>${pbar('M')}) + &Sigma;<sub>r</sub> w<sub>r</sub>${pbar('r')} + &Sigma;<sub>r</sub> w<sub>r</sub>${pbar('r')}<sup>foil</sup></span>
     <span class="f">EV<sub>draft</sub> = 10${pbar('C')} + 3${pbar('U')} + (<sup>7</sup>&frasl;<sub>8</sub>${pbar('R')} + <sup>1</sup>&frasl;<sub>8</sub>${pbar('M')}) + <sup>1</sup>&frasl;<sub>3</sub>&middot;&Sigma;<sub>r</sub> w<sub>r</sub>${pbar('r')}<sup>foil</sup></span>
-    <p class="w">${pbar('r')} = average price of the set's main cards of rarity r (one printing per card, basic lands left out). Wildcard and foil slots: w<sub>C</sub>=0.45, w<sub>U</sub>=0.35, w<sub>R</sub>=0.17, w<sub>M</sub>=0.03. Collector and special boosters have no EV and show n/a.</p>`,
+    <p class="w">${pbar('r')} = average price of the set's main cards of rarity r (one printing per card, basic lands left out). Wildcard and foil slots: w<sub>C</sub>=0.45, w<sub>U</sub>=0.35, w<sub>R</sub>=0.17, w<sub>M</sub>=0.03. Collector and special boosters have no EV and show n/a.</p>${LIMITS}`,
   newv:`<p><b>New to you</b> is the value of the holes in your collection this product is expected to fill. Every card you don't own counts once, weighted by the chance you actually get it.</p>
     <span class="f">N = &Sigma;<sub>c &notin; owned</sub> p<sub>c</sub> &middot; P(c)</span>
     <p class="w">Cards in the fixed contents (decklists, promos): P(c) = 1. Cards that can come from the boosters inside:</p>
     <span class="f">P(c) = 1 &minus; &prod;<sub>b</sub> (1 &minus; <sup>1</sup>&frasl;<sub>N<sub>r</sub></sub>)<sup>n<sub>b</sub>&middot;s<sub>r</sub></sup></span>
     <p class="w">N<sub>r</sub> = number of main cards of the card's rarity r, n<sub>b</sub> = boosters of type b, s<sub>r</sub> = slots of rarity r per booster. For a Play Booster s<sub>C</sub>&nbsp;=&nbsp;6.9, s<sub>U</sub>&nbsp;=&nbsp;3.7, s<sub>R</sub>&nbsp;=&nbsp;<sup>6</sup>&frasl;<sub>7</sub>+0.34, s<sub>M</sub>&nbsp;=&nbsp;<sup>1</sup>&frasl;<sub>7</sub>+0.06 (wildcard and foil slots included).</p>
-    <p class="w">So every extra booster adds less: cards you already pulled aren't new any more, and duplicates fill nothing. A box is worth much less than n&nbsp;&times; one booster's new cards and can never exceed what your missing cards cost as singles. A foil copy fills the hole at the regular card's price.</p>`,
+    <p class="w">So every extra booster adds less: cards you already pulled aren't new any more, and duplicates fill nothing. A box is worth much less than n&nbsp;&times; one booster's new cards and can never exceed what your missing cards cost as singles. A foil copy fills the hole at the regular card's price.</p>
+    <p class="w">The booster part has the same limits as Value: variants, Special Guests and collector boosters aren't counted.</p>`,
   verdict:`<p><b>Verdict</b> compares the card value with the cost.</p>
     <span class="f">r = V &divide; C</span>
     <p class="w"><b>Worth it</b>: r &ge; 100% &nbsp;·&nbsp; <b>Borderline</b>: 75% &le; r &lt; 100% &nbsp;·&nbsp; <b>Buy singles</b>: r &lt; 75%.<br>Bulk commons count here, so it reads higher than the booster verdict on the Cards &amp; boosters view, which uses only cards worth &ge; €0.50.</p>`,
+  mkratio:`<p><b>Per €1</b>: how much new-to-you card value each euro spent on the product buys.</p>
+    <span class="f">k = N &divide; C</span>
+    <p class="w">N = new to you, C = cost. Green: k &ge; €1 (you get more new value than you pay). Grey: €0.50 &le; k &lt; €1. Red: k &lt; €0.50.</p>`,
+  perf:`<p><b>Portfolio performance</b> compares today's price of each card with its price on the day you added it.</p>
+    <span class="f">&Delta; = &Sigma;<sub>c</sub> q<sub>c</sub>&middot;(p<sub>c</sub><sup>now</sup> &minus; p<sub>c</sub><sup>added</sup>)</span>
+    <p class="w">New cards store today's Cardmarket price when you add them. Adding more copies to a stack averages the prices. Changing a card's printing or finish starts it again at today's price. Cards added before this was recorded use Cardmarket's 1/7/30-day average for the day they were added (marked “est.”). Cards you removed aren't counted.</p>`,
   reprints:`<p><b>Which cards count as owned</b> for “new to you”:</p>
     <span class="f">off: owned(c) &hArr; name(c) &isin; names you own from set(c)</span>
     <span class="f">on: owned(c) &hArr; name(c) &isin; names you own from any set</span>
@@ -930,13 +1056,14 @@ async function loadProducts(code,setName){
   el.innerHTML=`<div class="toolbar"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="rp" ${reprints?'checked':''}> Count reprints I own from other sets as not new</label>
       ${info(INFO.reprints)}</div>
     ${r.products.length?`<div class="prow-head"><span>Product</span><span>Cost ${info(INFO.cost,'r')}</span><span>Value ${info(INFO.value,'r')}</span><span class="hide-s">New to you ${info(INFO.newv,'r')}</span><span class="hide-s">Verdict ${info(INFO.verdict,'r')}</span></div>
-    ${r.products.map((p,i)=>`<button class="prow" data-i="${i}"><span><span class="n">${esc(short(p.name))}</span><br><span class="muted small">${esc(PCAT[p.category]||p.category||'')}${p.set_code!==code?' · '+esc(p.set_code.toUpperCase()):''}</span></span>
+    ${r.products.map((p,i)=>`<button class="prow" data-i="${i}" ${imgAttr(p)}><span>${starHtml(p)}<span class="n">${esc(short(p.name))}</span><br><span class="muted small">${esc(PCAT[p.category]||p.category||'')}${p.set_code!==code?' · '+esc(p.set_code.toUpperCase()):''}</span></span>
       <span class="num money">${eur(p.cost)}</span><span class="num">${val(p,p.value)}</span><span class="num hide-s">${val(p,p.new_value)}</span>
       <span class="num hide-s">${p.cost&&(p.cards.length||p.packs.some(x=>x.ev!=null))?verdict(p.value,p.cost):''}</span></button><div class="pdetail" id="pd-${i}" hidden></div>`).join('')}`
     :'<div class="empty">MTGJSON lists no sealed products for this set.</div>'}
     <p class="muted small">Contents from MTGJSON, prices from Cardmarket (trend). Value counts every card at its price and boosters at their estimated value; <b>new to you</b> counts each card you don't own once. Collector and other special boosters aren't estimated (n/a). The verdict here includes bulk commons, so it reads higher than the booster verdict on the Cards &amp; boosters view, which leaves out cards under €0.50.</p>`;
   $('#rp').onchange=e=>{S.reprints=e.target.checked;loadProducts(code,setName)};
-  $$('#sv-products .prow').forEach(b=>b.onclick=()=>{const i=+b.dataset.i,d=$('#pd-'+i);
+  $$('#sv-products .prow').forEach(b=>b.onclick=e=>{const i=+b.dataset.i,d=$('#pd-'+i);
+    if(e.target.closest('[data-star]'))return toggleStar(r.products[i],code,e.target.closest('[data-star]'));
     if(!d.hidden){d.hidden=true;b.classList.remove('open');return}
     b.classList.add('open');d.hidden=false;d.innerHTML=productDetail(r.products[i],reprints)});
 }
@@ -949,7 +1076,7 @@ function productDetail(p,reprints){
       ${tile('New cards for you',est?eur(p.new_value):'—',[newCount?`${newCount} new card${newCount===1?'':'s'} for sure`:'',p.packs.some(x=>x.ev!=null)?'expected from boosters':'',reprints?'reprints counted':''].filter(Boolean).join(' + ')||'none')}
     </div>
     ${p.packs.length?`<h3 class="sub">Boosters inside</h3><ul class="plist" style="margin-bottom:12px">${p.packs.map(x=>`<li><span>${x.count} × ${esc(x.set_name)} ${esc(x.kind)}</span><b>${x.ev!=null?`${eur(x.ev*x.count)} <span class="muted small">(${eur(x.ev)} each · new to you ≈ ${eur(x.new_total)})</span>`:'<span class="muted">not estimated</span>'}</b></li>`).join('')}</ul>`:''}
-    ${p.cards.length?`<h3 class="sub">Cards inside (${p.cards.reduce((a,c)=>a+c.count,0)})</h3><ul class="plist">${p.cards.map(c=>`<li class="${c.new?'new':''}"><span>${c.count>1?c.count+' × ':''}<a href="${esc(cmUrl(c))}" target="_blank" rel="noopener" style="color:var(--ink)">${esc(c.name)}</a> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}${c.foil?' · foil':''}</span></span><b>${eur(c.unit==null?null:c.unit*c.count)}${c.new?' <span class="verdict good" style="padding:0 5px">new</span>':''}</b></li>`).join('')}</ul>`:''}
+    ${p.cards.length?`<h3 class="sub">Cards inside (${p.cards.reduce((a,c)=>a+c.count,0)})</h3><ul class="plist">${p.cards.map(c=>`<li class="${c.new?'new':''}" ${c.image_large||c.image?`data-img="${esc(c.image_large||c.image)}"`:''}><span>${c.count>1?c.count+' × ':''}<a href="${esc(cmUrl(c))}" target="_blank" rel="noopener" style="color:var(--ink)">${esc(c.name)}</a> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}${c.foil?' · foil':''}</span></span><b>${eur(c.unit==null?null:c.unit*c.count)}${c.new?' <span class="verdict good" style="padding:0 5px">new</span>':''}</b></li>`).join('')}</ul>`:''}
     ${p.other.length?`<p class="muted small" style="margin:10px 0 0">Also inside: ${p.other.map(esc).join(' · ')}</p>`:''}
     ${p.unpriced?`<p class="muted small" style="margin:6px 0 0">${p.unpriced} item${p.unpriced>1?'s':''} couldn't be matched to cards (often a basic land pack) and isn't counted.</p>`:''}
     ${p.notes.map(n=>`<p class="muted small" style="margin:6px 0 0">${esc(n)}</p>`).join('')}`;
@@ -959,7 +1086,7 @@ function productDetail(p,reprints){
 const FORMATS=['Commander','Standard','Pioneer','Modern','Legacy','Vintage','Pauper','Limited','Casual'];
 const BOARD_NAME={commander:'Commander',main:'Main deck',side:'Sideboard'};
 async function loadDecks(){
-  S.deck=null;$('#deck-detail').hidden=true;$('#deck-list-wrap').hidden=false;
+  S.deck=null;S.deckView='mine';showDeckView('mine');$('#deck-detail').hidden=true;$('#deck-list-wrap').hidden=false;setHash('decks');
   const el=$('#deck-list');let l;
   try{l=await api('/api/decks')}catch(e){el.innerHTML=`<div class="empty" style="grid-column:1/-1">${esc(e.message)}</div>`;return}
   el.innerHTML=l.length?l.map(d=>`<div class="panel deck-card" data-deck="${d.id}">${d.image?`<img src="${esc(d.image)}" alt="">`:'<img alt="">'}
@@ -1007,8 +1134,54 @@ $('#deck-precon').onclick=()=>{
         catch(e){toast(e.message,'err');x.disabled=false;x.textContent='Create deck'}});
     }catch(e){el.textContent=e.message}});
 };
+function showDeckView(v){
+  $$('#deck-view button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  $('#rec-wrap').hidden=v!=='rec';if(v==='rec'){$('#deck-list-wrap').hidden=true;$('#deck-detail').hidden=true}
+}
+$$('#deck-view button').forEach(b=>b.onclick=()=>{if(b.dataset.v==='rec'){S.deckView='rec';loadRecommended()}else loadDecks()});
+$$('#rec-fmt button').forEach(b=>b.onclick=()=>{S.recFmt=b.dataset.f;loadRecommended()});
+$('#rec-refresh').onclick=()=>loadRecommended(true);
+async function loadRecommended(refresh){
+  const fmt=S.recFmt||'standard',el=$('#rec-list');S.deckView='rec';showDeckView('rec');setHash('decks/recommended/'+fmt);
+  $$('#rec-fmt button').forEach(b=>b.classList.toggle('on',b.dataset.f===fmt));
+  const src=fmt==='standard'?'MTGGoldfish metagame':'EDHREC (most-built commanders this year, average decks)';
+  let r;
+  try{
+    r=refresh?null:await api('/api/recommended?format='+fmt);
+    if(!r||!r.decks.length){el.innerHTML=`<div class="empty">Downloading ${fmt==='standard'?'the top 12 Standard archetypes from MTGGoldfish':'the 20 most-built commanders from EDHREC'}… this takes up to a minute.</div>`;
+      r=await api('/api/recommended/refresh',{method:'POST',body:{format:fmt}})}
+  }catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  if((S.recFmt||'standard')!==fmt)return;
+  const age=r.fetched?Math.round((Date.now()/1000-r.fetched)/3600):null;
+  $('#rec-src').innerHTML=`From ${src} · updated ${age==null?'—':age<1?'just now':age<48?age+' h ago':Math.round(age/24)+' days ago'}`;
+  $('#rec-refresh').classList.toggle('primary',age!=null&&age>=24);
+  el.innerHTML=r.decks.map((d,i)=>`<button class="prow rec" data-i="${i}">
+      <span class="rec-img">${d.image?`<img src="${esc(d.image)}" alt="" loading="lazy">`:''}</span>
+      <span><span class="n">${esc(d.name)}</span><br><span class="muted small">${d.meta!=null?`${d.meta}% of the metagame`:d.popularity?`${d.popularity.toLocaleString()} decks on EDHREC`:''}</span>
+        <span class="bar" style="max-width:220px"><i style="width:${Math.round(100*d.owned/d.total)}%"></i></span><span class="muted small">you own ${d.owned} / ${d.total}</span></span>
+      <span class="num"><span class="muted small">to buy</span><br><b class="money" style="font-size:17px">${eur(d.missing_cost)}</b></span>
+      <span class="num hide-s"><span class="muted small">deck value</span><br><span class="money">${eur(d.value)}</span></span></button>
+    <div class="pdetail" id="rec-${i}" hidden></div>`).join('')+
+    `<p class="muted small">Sorted by what you'd still have to buy. A card counts as owned if you have it in any printing anywhere in your collection (deck boxes too); missing copies are priced at the cheapest printing the app knows (Cardmarket trend).</p>`;
+  $$('#rec-list .prow').forEach(b=>b.onclick=()=>{const i=+b.dataset.i,d=$('#rec-'+i);
+    if(!d.hidden){d.hidden=true;b.classList.remove('open');return}
+    b.classList.add('open');d.hidden=false;d.innerHTML=recDetail(r.decks[i]);
+    $('[data-save]',d).onclick=async()=>{try{const dk=await api(`/api/recommended/${r.decks[i].id}/save`,{method:'POST'});toast('Saved to My decks');S.deckView='mine';showDeckView('mine');openDeck(dk.id)}catch(e){toast(e.message,'err')}}});
+}
+function recDetail(d){
+  const miss=d.cards.filter(c=>c.found&&c.missing>0).sort((a,b)=>(b.price||0)*b.missing-(a.price||0)*a.missing);
+  const have=d.cards.filter(c=>c.found&&c.owned>0);
+  const li=c=>`<li data-img="${esc(c.image||'')}"><span>${c.missing>1?c.missing+' × ':''}<a href="${esc(cmUrl(c))}" target="_blank" rel="noopener" style="color:var(--ink)">${esc(c.name)}</a>${c.board!=='main'?` <span class="muted small">${c.board}</span>`:''}</span><b>${eur(c.price==null?null:c.price*c.missing)}</b></li>`;
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn primary" data-save>Save to My decks</button>
+      <a class="btn" href="${esc(d.url)}" target="_blank" rel="noopener">Open on ${esc(d.source)} ↗</a></div>
+    <h3 class="sub">To buy (${miss.reduce((a,c)=>a+c.missing,0)} cards · ${eur(d.missing_cost)})</h3>
+    ${miss.length?`<ul class="plist">${miss.map(li).join('')}</ul>`:'<p class="small">You own every card of this deck.</p>'}
+    ${have.length?`<details style="margin-top:12px"><summary class="small muted" style="cursor:pointer">You already own ${have.reduce((a,c)=>a+c.owned,0)} of its cards</summary>
+      <ul class="plist" style="margin-top:6px">${have.map(c=>`<li data-img="${esc(c.image||'')}"><span>${c.owned>1?c.owned+' × ':''}${esc(c.name)}</span><span class="muted small">owned</span></li>`).join('')}</ul></details>`:''}
+    ${d.unmatched.length?`<p class="muted small">Couldn't match: ${d.unmatched.map(esc).join(', ')}</p>`:''}`;
+}
 async function openDeck(id){
-  S.deck=id;$('#deck-list-wrap').hidden=true;const el=$('#deck-detail');el.hidden=false;
+  S.deck=id;S.deckView='mine';showDeckView('mine');$('#deck-list-wrap').hidden=true;const el=$('#deck-detail');el.hidden=false;setHash(`decks/${id}`);
   let d;try{d=await api('/api/decks/'+id)}catch(e){toast(e.message,'err');return loadDecks()}
   if(S.deck!==id)return;renderDeck(d);
 }
@@ -1079,10 +1252,292 @@ function renderDeck(d){
   inp.addEventListener('blur',()=>setTimeout(()=>ul.hidden=true,150));
 }
 
+/* ------------------------------------------------------------ market */
+const MK_CATS=[['all','All'],['booster','Boosters'],['box','Boxes'],['bundle','Bundles & kits'],['deck','Precons']];
+const mkCat=p=>({booster_pack:'booster',booster_box:'box',bundle:'bundle',limited_aid_tool:'bundle',box_set:'bundle',
+  deck:'deck',multiple_decks:'deck',deck_box:'deck'}[p.category]||'other');
+let mkFilter='all';
+$('#mk-cat').innerHTML=MK_CATS.map(([k,v])=>`<button data-c="${k}" class="${k==='all'?'on':''}">${v}</button>`).join('');
+$$('#mk-cat button').forEach(b=>b.onclick=()=>{mkFilter=b.dataset.c;S.mkPage=1;$$('#mk-cat button').forEach(x=>x.classList.toggle('on',x===b));drawMarket()});
+$('#mk-rp').onchange=e=>{S.reprints=e.target.checked;loadMarket()};
+$('#mk-reload').onclick=()=>{S.mkCache={};loadMarket()};
+const MK_KEY='cardlib.market';
+function mkPrefs(){try{return JSON.parse(localStorage.getItem(MK_KEY))||{}}catch(e){return {}}}
+function mkSave(p){try{localStorage.setItem(MK_KEY,JSON.stringify(p))}catch(e){}}
+S.mkCache={};
+const MK_SINCE_DEFAULT=2024;
+async function mkSetList(){
+  // selected sets: the main sets of what you own (a commander set's products come with its parent), minus the ones
+  // you removed, plus the ones you added. An empty list means "all sets".
+  const sets=await api('/api/collection'),names={};sets.forEach(x=>{names[x.code]=x});
+  const mine=[...new Set(sets.filter(x=>!['token','promo','memorabilia'].includes(x.set_type)).map(x=>x.parent_set_code||x.code))];
+  const pr=mkPrefs(),off=new Set(pr.off||[]),extra=(pr.extra||[]).filter(x=>!mine.includes(x.code));
+  return [...mine.filter(c=>!off.has(c)).map(c=>({code:c,name:names[c]?.name||c.toUpperCase(),icon:names[c]?.icon,mine:true})),
+          ...extra.map(x=>({...x,mine:false}))];
+}
+function drawMkSets(){
+  const l=S.mkSets||[],since=mkPrefs().since||MK_SINCE_DEFAULT,y=new Date().getFullYear();
+  $('#mk-sets').innerHTML=l.length?l.map(x=>`<button class="setchip on" data-code="${esc(x.code)}" title="Remove ${esc(x.name)}${x.mine?' (one of your sets)':''}">${x.icon?`<img src="${esc(x.icon)}" alt="">`:''}${esc(x.name)}<span class="x">✕</span></button>`).join('')
+    :`<span class="setchip on" style="cursor:default">All sets released since <select id="mk-since" style="margin-left:4px;padding:1px 4px;font-size:12.5px">${Array.from({length:y-1992},(_,i)=>y-i).map(v=>`<option ${v===since?'selected':''}>${v}</option>`).join('')}</select></span>`;
+  $$('#mk-sets button.setchip').forEach(b=>b.onclick=()=>{const code=b.dataset.code,pr=mkPrefs(),x=S.mkSets.find(x=>x.code===code);
+    if(x.mine)pr.off=[...new Set([...(pr.off||[]),code])];else pr.extra=(pr.extra||[]).filter(e=>e.code!==code);
+    mkSave(pr);S.mkSets=S.mkSets.filter(x=>x.code!==code);drawMkSets();loadMarket(true)});
+  const sel=$('#mk-since');if(sel)sel.onchange=()=>{const pr=mkPrefs();pr.since=+sel.value;mkSave(pr);loadMarket(true)};
+}
+(function(){
+  const inp=$('#mk-add'),ul=$('#mk-opts');let list=[],act=0;
+  const draw=()=>{ul.hidden=!list.length;ul.innerHTML=list.map((s,i)=>`<li class="${i===act?'act':''}" data-code="${s.code}"><img class="seticon" src="${esc(s.icon||'')}" alt=""><span><b>${esc(s.name)}</b> <span class="muted small">${s.code.toUpperCase()} · ${esc((s.released_at||'').slice(0,4))}</span></span></li>`).join('')};
+  const pick=async code=>{ul.hidden=true;inp.value='';const s=list.find(x=>x.code===code);if(!s)return;
+    const root=s.parent_set_code||s.code,pr=mkPrefs();  // a commander set's products come with its parent
+    pr.off=(pr.off||[]).filter(c=>c!==root);
+    if(!(pr.extra||[]).some(x=>x.code===root))pr.extra=[...(pr.extra||[]),{code:root,name:root===s.code?s.name:root.toUpperCase(),icon:root===s.code?s.icon:null}];
+    mkSave(pr);S.mkSets=await mkSetList();drawMkSets();loadMarket(true)};
+  inp.addEventListener('input',debounce(async()=>{const q=inp.value.trim();if(!q){list=[];return draw()}
+    try{list=(await api('/api/sets?q='+encodeURIComponent(q))).filter(s=>!['token','promo','memorabilia','alchemy','minigame'].includes(s.set_type));act=0;draw()}catch(e){toast(e.message,'err')}},200));
+  inp.addEventListener('keydown',e=>{if(ul.hidden)return;if(e.key==='ArrowDown'){act=Math.min(act+1,list.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){act=Math.max(act-1,0);draw();e.preventDefault()}else if(e.key==='Enter'&&list[act]){pick(list[act].code)}else if(e.key==='Escape')ul.hidden=true});
+  ul.addEventListener('mousedown',e=>{const li=e.target.closest('li');if(li){e.preventDefault();pick(li.dataset.code)}});
+  inp.addEventListener('blur',()=>setTimeout(()=>ul.hidden=true,150));
+})();
+$('#mk-mine').onclick=async()=>{const pr=mkPrefs();mkSave({since:pr.since});S.mkSets=await mkSetList();drawMkSets();loadMarket(true)};
+$('#mk-none').onclick=async()=>{const pr=mkPrefs(),sets=await api('/api/collection');
+  pr.off=[...new Set(sets.map(x=>x.parent_set_code||x.code))];pr.extra=[];mkSave(pr);S.mkSets=[];drawMkSets();loadMarket(true)};
+async function loadMarket(keepSets){
+  const el=$('#market'),prog=$('#mk-progress'),reprints=!!S.reprints,run=(S.marketRun||0)+1;S.marketRun=run;$('#mk-rp').checked=reprints;
+  if(!keepSets||!S.mkSets){try{S.mkSets=await mkSetList()}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}drawMkSets()}
+  const all_=!S.mkSets.length,since=mkPrefs().since||MK_SINCE_DEFAULT;
+  let roots=S.mkSets.map(x=>x.code);
+  if(all_){try{roots=(await api('/api/market/sets?since='+since)).map(x=>x.code)}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}}
+  const seen=new Set(),all=[];
+  S.market={products:all,reprints,sets:0,all:all_,since};S.mkPage=1;
+  if(!roots.length){prog.innerHTML='';el.innerHTML='<div class="empty">No sets to look at.</div>';return}
+  el.innerHTML='';
+  for(let i=0;i<roots.length;i++){
+    if(S.marketRun!==run)return;
+    const key=roots[i]+':'+(reprints?1:0);
+    if(!S.mkCache[key]){
+      prog.innerHTML=`<div class="panel" style="padding:10px 14px;margin-bottom:12px"><div class="small">Looking at products… <b>${i+1} / ${roots.length}</b> (${esc(roots[i].toUpperCase())})${all.length?' · the list below updates as sets come in':''}</div>
+        <div class="bar"><i style="width:${Math.round(100*i/roots.length)}%"></i></div>
+        <div class="muted small" style="margin-top:4px">The first time, each set downloads its product list and cards; after that it's quick.</div></div>`;
+      try{S.mkCache[key]=await api(`/api/collection/${encodeURIComponent(roots[i])}/products?reprints=${reprints?1:0}`)}
+      catch(e){toast(`${roots[i].toUpperCase()}: ${e.message}`,'err');continue}
+      if(S.marketRun!==run)return;
+    }
+    const r=S.mkCache[key];
+    const x=S.mkSets.find(x=>x.code===roots[i]);if(x&&!x.icon&&r.set){x.name=r.set.name;x.icon=r.set.icon;drawMkSets()}
+    for(const p of r.products){if(seen.has(p.uuid))continue;seen.add(p.uuid);all.push({...p,root:roots[i],root_name:r.set.name})}
+    S.market.sets=i+1;drawMarket();
+  }
+  if(S.marketRun!==run)return;
+  prog.innerHTML='';drawMarket();
+}
+function drawMarket(){
+  const el=$('#market'),m=S.market;if(!m)return;
+  const ranked=m.products.filter(p=>p.cost&&p.new_value>0).map(p=>({...p,ratio:p.new_value/p.cost}))
+    .filter(p=>mkFilter==='all'||mkCat(p)===mkFilter).sort((a,b)=>b.ratio-a.ratio);
+  const PER=50,pages=Math.max(1,Math.ceil(ranked.length/PER));S.mkPage=Math.min(Math.max(1,S.mkPage||1),pages);
+  const off=(S.mkPage-1)*PER,rated=ranked.slice(off,off+PER);
+  const pager=pages>1?`<div class="pager" style="margin:8px 0"><button class="btn sm" data-pg="-1" ${S.mkPage<=1?'disabled':''}>← Prev</button>
+    <span class="pg-info">Page ${S.mkPage} of ${pages} · #${off+1}–${off+rated.length} of ${ranked.length}</span>
+    <button class="btn sm" data-pg="1" ${S.mkPage>=pages?'disabled':''}>Next →</button></div>`:'';
+  const why=p=>!p.cost?'no Cardmarket price':!(p.cards.length||p.packs.some(x=>x.ev!=null))?'not estimated (collector/special boosters)':!(p.new_value>0)?'nothing new for you':'';
+  const unranked=m.products.filter(p=>why(p)&&(mkFilter==='all'||mkCat(p)===mkFilter)),skipped=unranked.length;
+  const tag=r=>r>=1?'good':r>=.5?'meh':'bad';
+  el.innerHTML=rated.length?`${pager}<div class="prow-head mk"><span>#&nbsp; Product</span><span>Cost ${info(INFO.cost,'r')}</span><span>New to you ${info(INFO.newv,'r')}</span><span class="hide-s">Per €1 ${info(INFO.mkratio,'r')}</span><span class="hide-s">Value ${info(INFO.value,'r')}</span></div>
+    ${rated.map((p,i)=>`<button class="prow mk" data-i="${i}" ${imgAttr(p)}><span>${starHtml(p)}<span class="n">${off+i+1}.&nbsp; ${esc(p.name)}</span><br><span class="muted small">${esc(PCAT[p.category]||p.category||'')} · ${esc(p.set_code.toUpperCase())}</span></span>
+      <span class="num money">${eur(p.cost)}</span><span class="num">${eur(p.new_value)}</span>
+      <span class="num hide-s"><span class="verdict ${tag(p.ratio)}">€${p.ratio.toFixed(2)}</span></span><span class="num hide-s">${eur(p.value)}</span></button><div class="pdetail" id="mk-${i}" hidden></div>`).join('')}
+    ${pager}
+    ${unranked.length?`<details class="unranked" style="margin:14px 0 6px"><summary class="small" style="cursor:pointer;color:var(--muted)">Not ranked (${unranked.length}): no price, no estimate, or nothing new for you</summary>
+      <div style="margin-top:8px">${unranked.map(p=>`<div class="box-row" style="grid-template-columns:1fr auto auto"><div><b>${esc(p.name)}</b><div class="muted small">${esc(PCAT[p.category]||p.category||'')} · ${esc(p.set_code.toUpperCase())}</div></div>
+        <span class="money small">${eur(p.cost)}</span><span class="muted small" style="min-width:150px;text-align:right">${why(p)}</span></div>`).join('')}</div></details>`:''}
+    <p class="muted small">${ranked.length} ranked of ${m.products.length} sealed products from ${m.all?`all ${m.sets} booster set${m.sets===1?'':'s'} released since ${m.since}`:`the ${m.sets} selected set${m.sets===1?'':'s'}`} (and their commander/sister sets), ranked by how much new-to-you card value each euro buys${m.reprints?', counting reprints you own from other sets as not new':''}. ${skipped} product${skipped===1?' is':'s are'} listed under “Not ranked”.</p>`
+    :`<div class="empty">No ranked products in this category.${skipped?` ${skipped} not ranked: `+unranked.map(p=>esc(p.name)+' ('+why(p)+')').join(', '):''}</div>`;
+  $$('#market [data-pg]').forEach(b=>b.onclick=()=>{S.mkPage+=+b.dataset.pg;drawMarket();$('#view-market').scrollIntoView({block:'start'})});
+  $$('#market .prow').forEach(b=>b.onclick=e=>{const i=+b.dataset.i,d=$('#mk-'+i);
+    if(e.target.closest('[data-star]'))return toggleStar(rated[i],rated[i].root,e.target.closest('[data-star]'));
+    if(!d.hidden){d.hidden=true;b.classList.remove('open');return}
+    b.classList.add('open');d.hidden=false;d.innerHTML=productDetail(rated[i],m.reprints)});
+}
+
+/* ------------------------------------------------------------ wishlist */
+S.wish=new Set();
+api('/api/wishlist').then(l=>{S.wish=new Set(l.map(x=>x.uuid));if(S.market&&S.tab==='market')drawMarket()}).catch(()=>{});
+const starHtml=p=>{const on=S.wish.has(p.uuid);return `<span class="star ${on?'on':''}" data-star="${esc(p.uuid)}" role="button" tabindex="0" title="${on?'Remove from':'Add to'} wishlist">${on?'★':'☆'}</span>`};
+async function toggleStar(p,root,el){
+  const on=S.wish.has(p.uuid);
+  try{
+    if(on)await api('/api/wishlist/'+p.uuid,{method:'DELETE'});
+    else await api('/api/wishlist',{method:'POST',body:{uuid:p.uuid,root,set_code:p.set_code,name:p.name}});
+    on?S.wish.delete(p.uuid):S.wish.add(p.uuid);
+    $$(`[data-star="${p.uuid}"]`).forEach(x=>{x.classList.toggle('on',!on);x.textContent=on?'☆':'★';x.title=(on?'Add to':'Remove from')+' wishlist'});
+    toast(on?'Removed from wishlist':'Added to wishlist');
+    if(S.tab==='wishlist')loadWishlist();
+  }catch(e){toast(e.message,'err')}
+}
+$('#wl-rp').onchange=e=>{S.reprints=e.target.checked;S.market=null;loadWishlist()};
+async function loadWishlist(){
+  const el=$('#wishlist'),reprints=!!S.reprints,run=(S.wlRun||0)+1;S.wlRun=run;$('#wl-rp').checked=reprints;
+  let wl;try{wl=await api('/api/wishlist')}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  S.wish=new Set(wl.map(x=>x.uuid));
+  if(!wl.length){el.innerHTML='<div class="empty">Your wishlist is empty. Star products (☆) in Market or on a set’s Products view.</div>';return}
+  el.innerHTML='<div class="empty">Updating prices and values…</div>';
+  const roots=[...new Set(wl.map(x=>x.root))],found={};
+  for(const root of roots){
+    const key=root+':'+(reprints?1:0);
+    try{if(!S.mkCache[key])S.mkCache[key]=await api(`/api/collection/${encodeURIComponent(root)}/products?reprints=${reprints?1:0}`);
+      for(const p of S.mkCache[key].products)found[p.uuid]={...p,root}}
+    catch(e){toast(`${root.toUpperCase()}: ${e.message}`,'err')}
+    if(S.wlRun!==run)return;
+  }
+  const items=wl.map(w=>found[w.uuid]?{...found[w.uuid],added_at:w.added_at}:{uuid:w.uuid,name:w.name,set_code:w.set_code,root:w.root,gone:true,added_at:w.added_at});
+  const ratio=p=>p.cost&&p.new_value>0?p.new_value/p.cost:-1;
+  items.sort((a,b)=>ratio(b)-ratio(a));
+  const live=items.filter(p=>!p.gone),cost=live.reduce((a,p)=>a+(p.cost||0),0),nv=live.reduce((a,p)=>a+(p.new_value||0),0);
+  const tag=r=>r>=1?'good':r>=.5?'meh':'bad';
+  const tile=(k,v,sub='')=>`<div class="panel tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
+  el.innerHTML=`<div class="tiles">${tile('Products',live.length,items.length>live.length?`${items.length-live.length} no longer listed`:'')}${tile('Total cost',eur(cost),'Cardmarket trend')}
+      ${tile('New to you',eur(nv),'sum per product; overlaps between products not removed')}</div>
+    <div class="prow-head mk"><span>Product</span><span>Cost ${info(INFO.cost,'r')}</span><span>New to you ${info(INFO.newv,'r')}</span><span class="hide-s">Per €1 ${info(INFO.mkratio,'r')}</span><span class="hide-s">Value ${info(INFO.value,'r')}</span></div>
+    ${items.map((p,i)=>p.gone?`<div class="prow mk" style="cursor:default"><span>${starHtml(p)}<span class="n">${esc(p.name||p.uuid)}</span><br><span class="muted small">no longer listed by MTGJSON</span></span><span></span><span></span><span class="hide-s"></span><span class="hide-s"></span></div>`
+      :`<button class="prow mk" data-i="${i}" ${imgAttr(p)}><span>${starHtml(p)}<span class="n">${esc(p.name)}</span><br><span class="muted small">${esc(PCAT[p.category]||p.category||'')} · ${esc(p.set_code.toUpperCase())} · starred ${esc((p.added_at||'').slice(0,10))}</span></span>
+      <span class="num money">${eur(p.cost)}</span><span class="num">${eur(p.new_value)}</span>
+      <span class="num hide-s">${ratio(p)>=0?`<span class="verdict ${tag(ratio(p))}">€${ratio(p).toFixed(2)}</span>`:'<span class="muted">n/a</span>'}</span><span class="num hide-s">${eur(p.value)}</span></button><div class="pdetail" id="wl-${i}" hidden></div>`).join('')}
+    <p class="muted small">Values are recalculated from today's prices and your current collection, so a product drops as you collect its cards.</p>`;
+  $$('#wishlist .prow').forEach(b=>b.onclick=e=>{const st=e.target.closest('[data-star]'),i=+b.dataset.i;
+    if(st){const p=items.find(x=>x.uuid===st.dataset.star);return toggleStar(p,p.root,st)}
+    if(Number.isNaN(i))return;const d=$('#wl-'+i);
+    if(!d.hidden){d.hidden=true;b.classList.remove('open');return}
+    b.classList.add('open');d.hidden=false;d.innerHTML=productDetail(items[i],reprints)});
+}
+
+/* product photo on hover (TCGplayer serves sealed-product images by product id) */
+const imgAttr=p=>p.image?`data-img="${esc(p.image)}"`:'';
+(function(){
+  const box=$('#pimg'),img=$('img',box);let cur=null;
+  const place=e=>{const w=236,h=box.offsetHeight||260;let x=e.clientX+18,y=e.clientY-h/2;
+    if(x+w>innerWidth-8)x=e.clientX-w-18;y=Math.max(8,Math.min(y,innerHeight-h-8));box.style.left=x+'px';box.style.top=y+'px'};
+  document.addEventListener('mouseover',e=>{const row=e.target.closest('[data-img]');
+    if(!row){if(cur){cur=null;box.hidden=true}return}
+    if(row!==cur){cur=row;box.classList.remove('loaded');img.removeAttribute('src');img.onload=()=>box.classList.add('loaded');
+      img.onerror=()=>{box.hidden=true};img.src=row.dataset.img;box.hidden=false}
+    place(e)});
+  document.addEventListener('mousemove',e=>{if(cur)place(e)});
+  document.addEventListener('scroll',()=>{if(cur){cur=null;box.hidden=true}},true);
+})();
+
+/* ------------------------------------------------------------ hall of fame */
+const fmtDay=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'});
+function deltaHtml(now,then,label,noPct){
+  if(then==null)return '';const d=now-then,pct=then?d/then*100:0,up=d>=0;
+  return `<span class="delta"><span class="${up?'up':'down'}">${up?'▲':'▼'}</span> ${up?'+':'−'}${eur(Math.abs(d)).slice(1)} <span class="muted" style="font-weight:600">${noPct?'':`(${up?'+':'−'}${Math.abs(pct).toFixed(1)}%) `}${label}</span></span>`;
+}
+async function loadHonor(){
+  const el=$('#honor');let r;
+  try{r=await api('/api/honor')}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  if(!r.top.length){el.innerHTML='<div class="empty">Add some cards to fill your hall of fame.</div>';return}
+  const prev=r.history.length>1?r.history[r.history.length-2]:null,pf=r.perf;
+  const medal=['var(--gold)','var(--silver)','var(--bronze)'];
+  const trend=t=>t.paid&&t.price?(()=>{const d=(t.price-t.paid)/t.paid*100;return Math.abs(d)<0.5?'<span class="muted">same as when added</span>':`<span style="color:${d>0?'var(--accent)':'var(--warn)'}">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(0)}%</span> <span class="muted">since added</span>`})():t.avg30&&t.price?(()=>{const d=(t.price-t.avg30)/t.avg30*100;return Math.abs(d)<0.5?'<span class="muted">steady vs 30-day avg</span>':`<span class="${d>0?'up':'down'}" style="color:${d>0?'var(--accent)':'var(--warn)'}">${d>0?'▲':'▼'} ${Math.abs(d).toFixed(0)}%</span> <span class="muted">vs 30-day avg</span>`})():'';
+  const pod=(t,i)=>`<div class="pod ${i===0?'first':''}" style="--m:${medal[i]}" data-top="${i}" title="${esc(t.location)}">
+      <div class="frame"><span class="medal">${i+1}</span><img src="${esc(t.image_large||t.image)}" alt="${esc(t.name)}"></div>
+      <div class="nm">${esc(t.name)} ${t.foil?'<span class="badge foil">Foil</span>':''}</div>
+      <div class="pr">${eur(t.price)}${t.qty>1?` <span class="muted" style="font-size:13px;font-weight:600">×${t.qty}</span>`:''}</div>
+      <div class="sub">${esc(t.set_code.toUpperCase())} #${esc(t.collector_number)} · ${trend(t)}</div></div>`;
+  const top3=r.top.slice(0,3),order=[1,0,2].filter(i=>top3[i]);
+  el.innerHTML=`<div class="hof-hero"><div><div class="k">Collection value</div><div class="big">${eur(r.value)}</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px;padding-bottom:6px">${prev?deltaHtml(r.value,prev.value,'vs '+fmtDay(prev.day)+' (incl. new cards)',true):''}
+        ${pf.basis?deltaHtml(pf.now,pf.basis,'price change since added'):''}</div>
+      <div class="muted small" style="padding-bottom:8px">${r.cards} cards · top 10 worth ${eur(r.top.reduce((a,t)=>a+t.price*t.qty,0))}</div></div>
+    <div class="podium">${order.map(i=>pod(top3[i],i)).join('')}</div>
+    ${r.top.length>3?`<div class="rest">${r.top.slice(3).map((t,j)=>`<div class="rest-card" data-top="${j+3}" title="${esc(t.name)} — ${esc(t.location)}">
+      <span class="rk">${j+4}</span><img src="${esc(t.image)}" alt="${esc(t.name)}" loading="lazy">
+      <div class="pr">${eur(t.price)}${t.foil?' <span class="badge foil">F</span>':''}</div><div class="nm">${esc(t.name)}</div></div>`).join('')}</div>`:''}
+    <div class="panel chart-panel"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <h3 class="sub" style="margin:0">Collection value over time</h3>
+        <span class="muted small">what you owned each day, at that day's prices${r.history.some(h=>h.estimate)?' · <svg width="22" height="6" style="vertical-align:middle"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/></svg> before price tracking began: prices from Cardmarket’s 1/7/30-day averages':''}</span></div>
+      <div id="hof-chart"></div><div class="chart-tip" id="hof-tip" hidden></div></div>
+    ${perfHtml(pf)}`;
+  $$('#honor [data-top]').forEach(x=>x.onclick=()=>{const t=r.top[+x.dataset.top];
+    if(t.kind==='binder'&&t.slot!=null)showSlot(t.storage_id,t.slot);else{S.cur={id:t.storage_id};S.page=1;setTab('storage')}});
+  drawValueChart(r.history);
+}
+function perfHtml(pf){
+  if(!pf||!pf.cards)return '';
+  const tile=(k,v,sub='')=>`<div class="panel tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
+  const up=pf.change>=0;
+  const row=c=>`<a class="perf-row" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="Open on Cardmarket">
+      <img src="${esc(c.image)}" alt="" loading="lazy">
+      <span class="pn"><b>${esc(c.name)}</b>${c.foil?' <span class="badge foil">F</span>':''}<br><span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · added ${fmtDay(c.added)}${c.qty>1?` · ×${c.qty}`:''}${c.est?' · est.':''}</span></span>
+      <span class="pp small"><span class="muted">${eur(c.paid)} →</span> <b>${eur(c.price)}</b></span>
+      <span class="pc" style="color:${c.change>=0?'var(--accent)':'var(--warn)'}">${c.change>=0?'▲ +':'▼ −'}${eur(Math.abs(c.change)).slice(1)}<br><span class="small">${c.pct!=null?(c.pct>=0?'+':'')+c.pct.toFixed(0)+'%':''}</span></span></a>`;
+  return `<h3 class="sub" style="margin:22px 0 10px;display:flex;gap:6px;align-items:center">Portfolio performance ${info(INFO.perf)}</h3>
+    <div class="tiles">${tile('Value when added',eur(pf.basis),`${pf.cards} cards${pf.estimated?` · ${pf.estimated} estimated`:''}`)}
+      ${tile('Value now',eur(pf.now),'same cards, today’s prices')}
+      ${tile('Change',`<span style="color:${up?'var(--accent)':'var(--warn)'}">${up?'▲ +':'▼ −'}${eur(Math.abs(pf.change)).slice(1)}</span>`,pf.pct!=null?`${up?'+':''}${pf.pct.toFixed(1)}% since added`:'')}</div>
+    <div class="perf-cols"><div class="panel perf-col"><h3 class="sub">Biggest risers</h3>${pf.risers.length?pf.risers.map(row).join(''):'<p class="muted small">No card has gone up since you added it yet.</p>'}</div>
+      <div class="panel perf-col"><h3 class="sub">Biggest fallers</h3>${pf.fallers.length?pf.fallers.map(row).join(''):'<p class="muted small">No card has gone down since you added it.</p>'}</div></div>`;
+}
+function drawValueChart(hist){
+  const box=$('#hof-chart'),tip=$('#hof-tip');if(!box)return;
+  if(hist.length<2){box.innerHTML='<div class="empty" style="margin-top:10px">The chart fills in day by day: come back tomorrow.</div>';return}
+  const W=Math.max(320,box.clientWidth),H=260,L=58,R=14,T=14,B=28;
+  const t=hist.map(h=>new Date(h.day+'T12:00:00').getTime()),v=hist.map(h=>h.value);
+  let lo=Math.min(...v),hi=Math.max(...v);if(hi-lo<1){lo-=1;hi+=1}const pad=(hi-lo)*.12;lo=Math.max(0,lo-pad);hi+=pad;
+  const step=(()=>{const raw=(hi-lo)/4,p=10**Math.floor(Math.log10(raw)),n=raw/p;return (n<=1?1:n<=2?2:n<=5?5:10)*p})();
+  lo=Math.floor(lo/step)*step;hi=Math.ceil(hi/step)*step;
+  const x=i=>L+(t[i]-t[0])/((t.at(-1)-t[0])||1)*(W-L-R),y=val=>T+(1-(val-lo)/(hi-lo))*(H-T-B);
+  const ticks=[];for(let g=lo;g<=hi+1e-9;g+=step)ticks.push(g);
+  const pts=hist.map((h,i)=>[x(i),y(h.value)]),firstReal=hist.findIndex(h=>!h.estimate);
+  const line=a=>a.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join('');
+  const estPts=firstReal>0?pts.slice(0,firstReal+1):firstReal<0?pts:[],realPts=firstReal>=0?pts.slice(firstReal):[];
+  const area=line(pts)+`L${pts.at(-1)[0].toFixed(1)},${H-B}L${pts[0][0].toFixed(1)},${H-B}Z`;
+  // date labels: spread out, never closer than 64px (the last one always shows)
+  const xt=[];for(let i=hist.length-1;i>=0;i--){if(!xt.length||x(xt[xt.length-1])-x(i)>=64)xt.push(i)}
+  if(xt.length>1&&x(xt[xt.length-1])-L<8&&xt[xt.length-1]!==0)xt.pop();
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Collection value per day">
+    <defs><linearGradient id="hofg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+    <g class="grid">${ticks.map(g=>`<line x1="${L}" x2="${W-R}" y1="${y(g)}" y2="${y(g)}"/>`).join('')}</g>
+    <g class="axis">${ticks.map(g=>`<text x="${L-8}" y="${y(g)+4}" text-anchor="end">€${g>=1000?(g/1000).toFixed(g%1000?1:0)+'k':Math.round(g)}</text>`).join('')}
+      ${xt.map(i=>`<text x="${x(i)}" y="${H-8}" text-anchor="${i===0?'start':i===hist.length-1?'end':'middle'}">${fmtDay(hist[i].day)}</text>`).join('')}</g>
+    <path d="${area}" fill="url(#hofg)"/>
+    ${estPts.length>1?`<path d="${line(estPts)}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>`:''}
+    ${realPts.length>1?`<path d="${line(realPts)}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`:''}
+    ${pts.map((p,i)=>hist[i].estimate?'':`<circle cx="${p[0]}" cy="${p[1]}" r="2.5" fill="var(--accent)"/>`).join('')}
+    <line id="hof-x" y1="${T}" y2="${H-B}" stroke="var(--muted)" stroke-width="1" visibility="hidden"/>
+    <circle id="hof-dot" r="5" fill="var(--accent)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/>
+    <rect x="${L}" y="0" width="${W-L-R}" height="${H}" fill="transparent" id="hof-hit"/></svg>`;
+  const svg=$('svg',box),hit=$('#hof-hit'),vx=$('#hof-x'),dot=$('#hof-dot');
+  const show=e=>{const r=svg.getBoundingClientRect(),mx=(e.clientX-r.left)*W/r.width;
+    let i=0;pts.forEach((p,k)=>{if(Math.abs(p[0]-mx)<Math.abs(pts[i][0]-mx))i=k});
+    const [px,py]=pts[i],h=hist[i];
+    vx.setAttribute('x1',px);vx.setAttribute('x2',px);vx.setAttribute('visibility','visible');
+    dot.setAttribute('cx',px);dot.setAttribute('cy',py);dot.setAttribute('visibility','visible');
+    tip.hidden=false;tip.innerHTML=`<div class="muted">${fmtDay(h.day)}${h.estimate?' · estimate':''}</div><b>${eur(h.value)}</b>${h.cards!=null?` <span class="muted">· ${h.cards} cards</span>`:''}`;
+    const cx=box.offsetLeft+px*r.width/W,cy=box.offsetTop+py*r.height/H-12;
+    tip.style.left=Math.min(Math.max(cx,70),box.clientWidth-60)+'px';tip.style.top=cy+'px'};
+  hit.addEventListener('mousemove',show);hit.addEventListener('touchstart',e=>show(e.touches[0]),{passive:true});
+  hit.addEventListener('mouseleave',()=>{tip.hidden=true;vx.setAttribute('visibility','hidden');dot.setAttribute('visibility','hidden')});
+}
+window.addEventListener('resize',debounce(()=>{if(S.tab==='honor')loadHonor()},250));
+
 /* ------------------------------------------------------------ boot */
 loadStats();
 api('/api/storages').then(l=>S.storages=l).catch(()=>{});
-setTab('find');
+function route(){
+  const [path,query]=location.hash.slice(1).split('?'),[t,a,b]=path.split('/').map(decodeURIComponent);
+  const q=new URLSearchParams(query||'');
+  if(t==='storage'&&a){S.cur={id:+a};S.page=+b||1}
+  if(t==='collections'&&a){S.coll=a;S.collView=b||null}
+  if(t==='decks'&&a==='recommended'){S.deckView='rec';S.recFmt=b||'standard'}
+  else if(t==='decks'&&a){S.deckView='mine';S.deck=+a}
+  if(t==='find'&&q.get('q'))$('#find-q').value=q.get('q');
+  if(t==='storage'&&!a)S.cur=null;
+  if(t==='collections'&&!a)S.coll=null;
+  if(t==='decks'&&!a){S.deck=null;S.deckView='mine'}
+  setTab(['find','add','storage','collections','decks','market','wishlist','honor'].includes(t)?t:'find');
+}
+window.addEventListener('hashchange',route);  // a pasted link or Back; our own updates use replaceState
+route();
 </script>
 </body>
 </html>
