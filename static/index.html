@@ -191,6 +191,21 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .plist li{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--line);break-inside:avoid}
 .plist li.new b{color:var(--accent)}
 @media (max-width:700px){.prow,.prow-head{grid-template-columns:1fr 80px 80px}.prow .hide-s,.prow-head .hide-s{display:none}}
+/* decks */
+.deck-card{padding:0;overflow:hidden;cursor:pointer;border:1px solid var(--line);display:grid;grid-template-columns:86px 1fr}
+.deck-card:hover{border-color:var(--muted)}
+.deck-card img{width:86px;height:100%;min-height:120px;object-fit:cover;object-position:50% 12%;background:var(--panel2)}
+.deck-card .b{padding:12px 14px;min-width:0}
+.dk-add{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.dk-add .picker{flex:1;min-width:240px}
+.dk-sec{margin:16px 0 6px;font-weight:700;display:flex;justify-content:space-between}
+.dk-row{display:grid;grid-template-columns:58px 30px 1fr 110px 70px 118px 30px;gap:10px;align-items:center;padding:5px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:4px}
+.dk-row input[type=number]{width:58px;padding:4px 6px}
+.dk-row img{width:30px;aspect-ratio:63/88;border-radius:3px;object-fit:cover}
+.dk-row .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dk-row select{padding:4px 6px;font-size:13px}
+.have{font-size:12px;font-weight:700;color:var(--accent)}.need{font-size:12px;font-weight:700;color:var(--warn)}
+@media (max-width:700px){.dk-row{grid-template-columns:52px 1fr 70px 30px}.dk-row img,.dk-row .hide-s{display:none}}
 /* dialogs */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(10,10,10,.45)}
@@ -227,6 +242,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
     <button class="tab" data-tab="add">Add cards</button>
     <button class="tab" data-tab="storage">Binders &amp; boxes</button>
     <button class="tab" data-tab="collections">Collections</button>
+    <button class="tab" data-tab="decks">Decks</button>
   </nav>
   <div id="stats"></div>
 </div></header>
@@ -274,11 +290,20 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
     </div>
     <div id="coll-detail" hidden></div>
   </section>
+
+  <section id="view-decks" class="view" hidden>
+    <div id="deck-list-wrap">
+      <div class="toolbar"><button class="btn primary" id="deck-new">+ New deck</button><button class="btn" id="deck-precon">From a precon</button></div>
+      <div id="deck-list" class="set-grid"></div>
+    </div>
+    <div id="deck-detail" hidden></div>
+  </section>
 </main>
 
 <dialog id="dlg-storage"><form class="dlg" method="dialog" id="storage-form"></form></dialog>
 <dialog id="dlg-pocket"><div class="dlg" id="pocket-body"></div></dialog>
 <dialog id="dlg-addset"><form class="dlg" method="dialog" id="addset-form"></form></dialog>
+<dialog id="dlg-deck"><div class="dlg" id="deck-dlg-body"></div></dialog>
 <dialog id="dlg-moves"><div class="dlg" id="moves-body"></div></dialog>
 <div id="toast"></div>
 
@@ -324,8 +349,9 @@ function setTab(t){
   if(t==='add')$('#add-q').focus();
   if(t==='storage'){if(S.cur)openStorage(S.cur.id,S.page);else loadStorages()}
   if(t==='collections'){if(S.coll)openSet(S.coll);else loadCollections()}
+  if(t==='decks'){if(S.deck)openDeck(S.deck);else loadDecks()}
 }
-$$('.tab').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='storage'&&S.tab==='storage'){S.cur=null}if(b.dataset.tab==='collections'&&S.tab==='collections'){S.coll=null}setTab(b.dataset.tab)});
+$$('.tab').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='storage'&&S.tab==='storage'){S.cur=null}if(b.dataset.tab==='collections'&&S.tab==='collections'){S.coll=null}if(b.dataset.tab==='decks'&&S.tab==='decks'){S.deck=null}setTab(b.dataset.tab)});
 async function loadStats(){
   try{const s=await api('/api/stats'),el=$('#stats');S.prices=s.prices;
     el.innerHTML=`${s.cards} cards · ${s.unique} unique · ${s.storages} places · <b class="money" style="color:var(--ink)">${eur(s.value)}</b>`;
@@ -474,9 +500,9 @@ async function loadStorages(){
   el.innerHTML=S.storages.map(s=>{
     const cap=s.capacity_total,pct=cap?Math.min(100,Math.round(100*s.count/cap)):0;
     return `<div class="panel st-card" style="--c:${esc(s.color||'')}" data-open="${s.id}">
-      <div style="display:flex;justify-content:space-between"><span class="st-name">${esc(s.name)}</span><span class="tag">${s.kind}</span></div>
+      <div style="display:flex;justify-content:space-between"><span class="st-name">${esc(s.name)}</span><span class="tag">${s.deck?'deck box':s.kind}</span></div>
       <div class="muted small">${s.kind==='binder'?`${s.page_count} pages · ${s.rows}×${s.cols} pockets · ${s.mode==='set_order'?'set order':'fill in order'}`:(s.capacity?`holds ${s.capacity}`:'no size limit')}</div>
-      <div class="chips">${s.sets.length?s.sets.map(x=>`<span class="chip" title="${esc(x.name||'')}">${esc(x.set_code)}</span>`).join(''):'<span class="muted small">any set (general)</span>'}</div>
+      <div class="chips">${s.deck?'<span class="muted small">holds its deck only</span>':s.sets.length?s.sets.map(x=>`<span class="chip" title="${esc(x.name||'')}">${esc(x.set_code)}</span>`).join(''):'<span class="muted small">any set (general)</span>'}</div>
       <div class="small" style="display:flex;justify-content:space-between"><span><b>${s.count}</b>${cap?` / ${cap}`:''} cards</span><span class="money">${eur(s.value)}</span></div>${cap?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}
       ${s.space&&s.mode==='set_order'?`<div class="muted small" style="margin-top:6px">${s.space.reserved} reserved by sets · ${s.space.free} pockets unreserved</div>`:''}
     </div>`}).join('');
@@ -544,12 +570,13 @@ async function openStorage(id,page=1){
       <button class="btn" id="back">← All</button>
       <div style="flex:1;min-width:200px"><h2 style="display:flex;gap:8px;align-items:center">${dot(st.color)}${esc(st.name)}</h2>
         <div class="muted small">${st.kind==='binder'?`${st.page_count} pages (${st.sheets} sheets${st.double_sided?', both sides':''}) · ${st.rows}×${st.cols} pockets · ${st.mode==='set_order'?'set order':'fill in order'} · `:''}${st.count}${cap?` / ${cap}`:''} cards · <b class="money" style="color:var(--ink)">${eur(st.value)}</b>${st.notes?' · '+esc(st.notes):''}</div></div>
-      <button class="btn" id="edit">Edit</button><button class="btn danger" id="del">Delete</button>
+      ${st.deck?`<button class="btn primary" id="open-deck">Open deck</button>`:''}<button class="btn" id="edit">Edit</button><button class="btn danger" id="del">Delete</button>
     </div>
     <div class="detail-grid">
       <div class="panel sets-panel">
         <h3 class="sub">Sets in this ${st.kind}</h3>
-        ${st.sets.length?'':`<p class="muted small" style="margin-top:0">No sets assigned — this ${st.kind} accepts cards from any set.</p>`}
+        ${st.deck?`<div class="notes" style="background:var(--accent-soft);color:var(--ink)">This is the box of your deck <b>${esc(st.deck.name)}</b>. Changes to the deck list add or take cards out of it, and new cards aren't suggested here.</div>`
+          :st.sets.length?'':`<p class="muted small" style="margin-top:0">No sets assigned — this ${st.kind} accepts cards from any set.</p>`}
         <ul class="set-list">${st.sets.map((x,i)=>{const sec=secBy[x.set_code];return `
           <li class="set-row"><img class="seticon" src="${esc(x.icon||'')}" alt="">
             <div><b>${esc(x.name||x.set_code)}</b> <span class="muted small">${esc(x.set_code.toUpperCase())}</span>
@@ -565,6 +592,7 @@ async function openStorage(id,page=1){
       <div id="st-content"></div>
     </div>`;
   $('#back').onclick=loadStorages;
+  if(st.deck)$('#open-deck').onclick=()=>{S.deck=st.deck.id;setTab('decks')};
   $('#edit').onclick=()=>storageForm(st.kind,st);
   $('#del').onclick=async()=>{if(!confirm(`Delete ${st.name}?`))return;try{await api('/api/storages/'+st.id,{method:'DELETE'});toast('Deleted');loadStats();loadStorages()}catch(e){toast(e.message,'err')}};
   const setCall=async(p)=>{try{const r=await p;showMoves(r.moves);openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
@@ -874,6 +902,130 @@ function productDetail(p,reprints){
     ${p.other.length?`<p class="muted small" style="margin:10px 0 0">Also inside: ${p.other.map(esc).join(' · ')}</p>`:''}
     ${p.unpriced?`<p class="muted small" style="margin:6px 0 0">${p.unpriced} item${p.unpriced>1?'s':''} couldn't be matched to cards (often a basic land pack) and isn't counted.</p>`:''}
     ${p.notes.map(n=>`<p class="muted small" style="margin:6px 0 0">${esc(n)}</p>`).join('')}`;
+}
+
+/* ------------------------------------------------------------ decks */
+const FORMATS=['Commander','Standard','Pioneer','Modern','Legacy','Vintage','Pauper','Limited','Casual'];
+const BOARD_NAME={commander:'Commander',main:'Main deck',side:'Sideboard'};
+async function loadDecks(){
+  S.deck=null;$('#deck-detail').hidden=true;$('#deck-list-wrap').hidden=false;
+  const el=$('#deck-list');let l;
+  try{l=await api('/api/decks')}catch(e){el.innerHTML=`<div class="empty" style="grid-column:1/-1">${esc(e.message)}</div>`;return}
+  el.innerHTML=l.length?l.map(d=>`<div class="panel deck-card" data-deck="${d.id}">${d.image?`<img src="${esc(d.image)}" alt="">`:'<img alt="">'}
+    <div class="b"><div class="st-name">${esc(d.name)}</div><div class="muted small">${d.physical?'<span class="badge" style="margin-right:4px">📦 own it</span>':''}${esc(d.format||'No format')}${d.source?' · '+esc(d.source):''}</div>
+    <div class="small" style="margin-top:8px">${d.stats.cards} cards · <span class="money">${eur(d.stats.value)}</span></div>
+    <div class="small"><span class="${d.stats.owned>=d.stats.cards?'have':'muted'}">own ${d.stats.owned}/${d.stats.cards}</span>${d.stats.missing_cost?` <span class="muted">· missing ${eur(d.stats.missing_cost)}</span>`:''}</div>
+    <div class="bar"><i style="width:${d.stats.cards?Math.round(100*d.stats.owned/d.stats.cards):0}%"></i></div></div></div>`).join('')
+    :'<div class="empty" style="grid-column:1/-1">No decks yet. Create one, paste a list, or start from a precon.</div>';
+}
+$('#deck-list').addEventListener('click',e=>{const c=e.target.closest('[data-deck]');if(c)openDeck(+c.dataset.deck)});
+function deckDialog(html){const b=$('#deck-dlg-body');b.innerHTML=html;const d=$('#dlg-deck');d.showModal();$$('[data-close]',b).forEach(x=>x.onclick=()=>d.close());return b}
+const listHelp='<span class="muted small">One card per line: “4 Lightning Bolt” or “1 Sol Ring (CMM) 410”. Lines “Commander” and “Sideboard” start those sections.</span>';
+$('#deck-new').onclick=()=>{
+  const b=deckDialog(`<h3>New deck</h3><div class="form">
+    <label class="full">Name<input id="dn-name" placeholder="e.g. Mono-red burn"></label>
+    <label class="full">Format<select id="dn-fmt"><option value="">—</option>${FORMATS.map(f=>`<option>${f}</option>`).join('')}</select></label>
+    <label class="chk full"><input type="checkbox" id="dn-phys"> I own this deck: add its cards to my collection, in a deck box of its own</label>
+    <label class="full">Decklist (optional)<textarea id="dn-list" rows="8" placeholder="4 Lightning Bolt&#10;4 Goblin Guide&#10;&#10;Sideboard&#10;2 Smash to Smithereens"></textarea>${listHelp}</label></div>
+    <div class="dlg-foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="dn-go">Create deck</button></div>`);
+  $('#dn-name').focus();
+  $('#dn-go',b).onclick=async()=>{
+    try{const d=await api('/api/decks',{method:'POST',body:{name:$('#dn-name').value,format:$('#dn-fmt').value,physical:$('#dn-phys').checked}});
+      const text=$('#dn-list').value.trim();$('#dlg-deck').close();
+      if(text){toast('Looking up cards…');const r=await api(`/api/decks/${d.id}/import`,{method:'POST',body:{text}});importToast(r)}
+      openDeck(d.id)}catch(e){toast(e.message,'err')}};
+};
+function importToast(r){toast(`Added ${r.added} card${r.added===1?'':'s'}`+(r.not_found.length?` · not found: ${r.not_found.slice(0,3).join(', ')}${r.not_found.length>3?'…':''}`:''),r.not_found.length?'err':'')}
+$('#deck-precon').onclick=()=>{
+  const b=deckDialog(`<h3>Deck from a precon</h3>
+    <div class="picker" style="margin-bottom:10px"><input id="pc-set" placeholder="Set (e.g. Bloomburrow)" autocomplete="off" style="width:100%"><ul id="pc-opts" hidden></ul></div>
+    <label class="small" style="display:flex;gap:6px;align-items:center;margin-bottom:10px"><input type="checkbox" id="pc-phys"> I own this deck: add its cards to my collection, in a deck box of its own</label>
+    <div id="pc-list" class="muted small">Pick a set to see its preconstructed decks, including its commander decks.</div>
+    <div class="dlg-foot"><button class="btn" data-close>Close</button></div>`);
+  const inp=$('#pc-set'),ul=$('#pc-opts');let list=[];inp.focus();
+  const draw=()=>{ul.hidden=!list.length;ul.innerHTML=list.map(s=>`<li data-code="${s.code}"><img class="seticon" src="${esc(s.icon||'')}" alt=""><span><b>${esc(s.name)}</b> <span class="muted small">${s.code.toUpperCase()} · ${esc((s.released_at||'').slice(0,4))}</span></span></li>`).join('')};
+  inp.addEventListener('input',debounce(async()=>{const q=inp.value.trim();if(!q){list=[];return draw()}try{list=(await api('/api/sets?q='+encodeURIComponent(q))).filter(s=>!['token','promo','memorabilia','alchemy','minigame'].includes(s.set_type));draw()}catch(e){toast(e.message,'err')}},200));
+  ul.addEventListener('mousedown',async e=>{const li=e.target.closest('li');if(!li)return;e.preventDefault();ul.hidden=true;
+    const s=list.find(x=>x.code===li.dataset.code);inp.value=s.name;const el=$('#pc-list');el.textContent='Loading decklists from MTGJSON…';
+    try{const ps=await api('/api/precons?set='+encodeURIComponent(s.code));
+      el.innerHTML=ps.length?ps.map((p,i)=>`<div class="box-row" style="grid-template-columns:1fr auto"><div><b>${esc(p.name)}</b><div class="muted small">${esc(p.type||'')} · ${p.cards} cards · ${esc(p.set_code.toUpperCase())}</div></div><button class="btn sm primary" data-pc="${i}">Create deck</button></div>`).join('')
+        :'No precons listed for this set.';
+      $$('[data-pc]',el).forEach(x=>x.onclick=async()=>{const p=ps[+x.dataset.pc];x.disabled=true;x.textContent='Creating…';
+        try{const d=await api('/api/decks/from-precon',{method:'POST',body:{set_code:p.set_code,name:p.name,physical:$('#pc-phys').checked}});$('#dlg-deck').close();
+          toast(`Created ${d.name} · ${d.stats.cards} cards`+(d.unresolved?` · ${d.unresolved} couldn't be matched`:''));openDeck(d.id)}
+        catch(e){toast(e.message,'err');x.disabled=false;x.textContent='Create deck'}});
+    }catch(e){el.textContent=e.message}});
+};
+async function openDeck(id){
+  S.deck=id;$('#deck-list-wrap').hidden=true;const el=$('#deck-detail');el.hidden=false;
+  let d;try{d=await api('/api/decks/'+id)}catch(e){toast(e.message,'err');return loadDecks()}
+  if(S.deck!==id)return;renderDeck(d);
+}
+function renderDeck(d){
+  const el=$('#deck-detail'),st=d.stats;
+  const tile=(k,v,sub='')=>`<div class="panel tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
+  const groups=['commander','main','side'].map(bd=>[bd,d.cards.filter(c=>c.board===bd)]).filter(([,cs])=>cs.length);
+  el.innerHTML=`<div class="detail-head"><button class="btn" id="dk-back">← All decks</button>
+      <div style="flex:1;min-width:200px"><h2>${esc(d.name)}</h2><div class="muted small">${esc(d.format||'No format')}${d.source?' · from '+esc(d.source):''}</div></div>
+      ${d.physical?`<button class="btn" id="dk-box">Open deck box</button><button class="btn" id="dk-unown">Don’t own it</button>`:`<button class="btn primary" id="dk-own">I own this deck</button>`}
+      <button class="btn" id="dk-edit">Edit</button><button class="btn" id="dk-import">Paste list</button><button class="btn" id="dk-export">Copy list</button><button class="btn danger" id="dk-del">Delete</button></div>
+    <div class="tiles">${tile('Cards',st.cards,st.cards!==st.main?`${st.main} + ${st.cards-st.main} sideboard`:'')}${tile('Value',eur(st.value),'Cardmarket trend')}
+      ${d.physical?tile('In its box',`${st.in_box} / ${st.cards}`,st.in_box<st.cards?'some cards are elsewhere':'complete'):tile('You own',`${st.owned} / ${st.cards}`,'any printing, any set')}${tile('Missing',eur(st.missing_cost),`${st.cards-st.owned} card${st.cards-st.owned===1?'':'s'} to buy`)}</div>
+    <div class="dk-add"><div class="picker"><input id="dk-q" placeholder="Add a card: name, or “blb 12”" autocomplete="off"><ul id="dk-opts" hidden></ul></div>
+      <select id="dk-board">${Object.entries(BOARD_NAME).map(([k,v])=>`<option value="${k}" ${k==='main'?'selected':''}>${v}</option>`).join('')}</select></div>
+    ${groups.length?groups.map(([bd,cs])=>`<div class="dk-sec"><span>${BOARD_NAME[bd]} (${cs.reduce((a,c)=>a+c.qty,0)})</span><span class="money small">${eur(cs.reduce((a,c)=>a+(c.price||0)*c.qty,0))}</span></div>
+      ${cs.map(c=>`<div class="dk-row" data-dc="${c.id}"><input type="number" min="0" value="${c.qty}" data-qty title="0 removes it">
+        <img src="${esc(c.image)}" alt="" loading="lazy">
+        <span class="nm"><a href="${esc(cmUrl(c))}" target="_blank" rel="noopener" style="color:var(--ink);font-weight:600">${esc(c.name)}</a> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}${c.foil?' · foil':''}</span></span>
+        <span class="hide-s" title="${esc(c.where.join('\n'))}">${d.physical?(c.in_box>=c.qty?'<span class="have">✓ in box</span>':`<span class="need">${c.qty-c.in_box} not in box</span>`):c.missing?`<span class="need">need ${c.missing}</span>${c.owned?` <span class="muted small">(have ${c.owned})</span>`:''}`:`<span class="have">✓ owned</span>`}</span>
+        <span class="money small" style="text-align:right">${eur(c.price==null?null:c.price*c.qty)}</span>
+        <select data-board class="hide-s">${Object.entries(BOARD_NAME).map(([k,v])=>`<option value="${k}" ${k===c.board?'selected':''}>${v}</option>`).join('')}</select>
+        <button class="icon-btn" data-rm title="Remove">✕</button></div>`).join('')}`).join('')
+    :'<div class="empty">This deck is empty. Add cards above, or paste a list.</div>'}
+    <p class="muted small">${d.physical?'You own this deck: its cards are in the deck box “'+esc(d.name)+'”, and changing the list here adds or takes cards out of that box. Hover a card to see where your copies are.':'“Owned” counts copies of a card in any printing anywhere in your collection; hover it to see where they are.'}</p>`;
+  $('#dk-back').onclick=loadDecks;
+  if(d.physical){
+    $('#dk-box').onclick=()=>{S.cur={id:d.storage_id};S.page=1;setTab('storage')};
+    $('#dk-unown').onclick=()=>{const b=deckDialog(`<h3>You don’t own ${esc(d.name)} any more?</h3>
+      <p class="small">Its deck box holds ${st.in_box} card${st.in_box===1?'':'s'}.</p>
+      <div style="display:grid;gap:8px">
+        <button class="btn" id="un-keep">Keep the cards: the deck box becomes an ordinary box</button>
+        <button class="btn danger" id="un-drop">Remove the deck box and its cards from my collection</button></div>
+      <div class="dlg-foot"><button class="btn" data-close>Cancel</button></div>`);
+      $('#un-keep',b).onclick=()=>{$('#dlg-deck').close();call(api(`/api/decks/${d.id}/physical`,{method:'POST',body:{on:false,keep_cards:true}}),'The deck box is now an ordinary box');loadStats()};
+      $('#un-drop',b).onclick=()=>{$('#dlg-deck').close();call(api(`/api/decks/${d.id}/physical`,{method:'POST',body:{on:false}}),'Deck box removed');loadStats()}};
+  }else $('#dk-own').onclick=()=>{if(!confirm(`Add the ${st.cards} cards of “${d.name}” to your collection, in a new deck box?`))return;
+    call(api(`/api/decks/${d.id}/physical`,{method:'POST',body:{on:true}}),'Cards added in the deck box “'+d.name+'”').then(()=>{loadStats();refreshStorages()})};
+  const call=async(p,msg)=>{try{const r=await p;renderDeck(r);if(msg)toast(msg);if(r.physical||d.physical)loadStats()}catch(e){toast(e.message,'err')}};
+  $$('.dk-row',el).forEach(row=>{const id=row.dataset.dc;
+    $('[data-qty]',row).onchange=e=>call(api(`/api/decks/${d.id}/cards/${id}`,{method:'PUT',body:{qty:Math.max(0,+e.target.value||0)}}));
+    $('[data-board]',row).onchange=e=>call(api(`/api/decks/${d.id}/cards/${id}`,{method:'PUT',body:{board:e.target.value}}));
+    $('[data-rm]',row).onclick=()=>call(api(`/api/decks/${d.id}/cards/${id}`,{method:'DELETE'}))});
+  $('#dk-del').onclick=async()=>{if(!confirm(d.physical?`Delete the deck “${d.name}”? Its deck box and cards stay in your collection as an ordinary box.`:`Delete the deck “${d.name}”? Your cards stay in your collection.`))return;try{await api('/api/decks/'+d.id,{method:'DELETE'});toast('Deleted');loadDecks()}catch(e){toast(e.message,'err')}};
+  $('#dk-edit').onclick=()=>{const b=deckDialog(`<h3>Edit deck</h3><div class="form">
+      <label class="full">Name<input id="de-name" value="${esc(d.name)}"></label>
+      <label class="full">Format<select id="de-fmt"><option value="">—</option>${FORMATS.map(f=>`<option ${f===d.format?'selected':''}>${f}</option>`).join('')}</select></label>
+      <label class="full">Notes<textarea id="de-notes" rows="3">${esc(d.notes||'')}</textarea></label></div>
+      <div class="dlg-foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="de-go">Save</button></div>`);
+    $('#de-go',b).onclick=()=>{$('#dlg-deck').close();call(api('/api/decks/'+d.id,{method:'PUT',body:{name:$('#de-name').value,format:$('#de-fmt').value,notes:$('#de-notes').value}}),'Saved')}};
+  $('#dk-import').onclick=()=>{const b=deckDialog(`<h3>Paste a list into ${esc(d.name)}</h3>
+      <textarea id="di-text" rows="12" style="width:100%" placeholder="4 Lightning Bolt"></textarea>${listHelp}
+      <div class="dlg-foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="di-go">Add cards</button></div>`);
+    $('#di-text').focus();
+    $('#di-go',b).onclick=async()=>{const text=$('#di-text').value;$('#dlg-deck').close();toast('Looking up cards…');
+      try{const r=await api(`/api/decks/${d.id}/import`,{method:'POST',body:{text}});renderDeck(r);importToast(r)}catch(e){toast(e.message,'err')}}};
+  $('#dk-export').onclick=async()=>{
+    const txt=groups.map(([bd,cs])=>(bd==='main'?'':BOARD_NAME[bd]+'\n')+cs.map(c=>`${c.qty} ${c.name} (${c.set_code.toUpperCase()}) ${c.collector_number}${c.foil?' *F*':''}`).join('\n')).join('\n\n');
+    try{await navigator.clipboard.writeText(txt);toast('Decklist copied')}catch(e){deckDialog(`<h3>Decklist</h3><textarea rows="14" style="width:100%">${esc(txt)}</textarea><div class="dlg-foot"><button class="btn" data-close>Close</button></div>`)}};
+  // add-card search
+  const inp=$('#dk-q'),ul=$('#dk-opts');let list=[],act=0,seq=0;
+  const draw=()=>{ul.hidden=!list.length;ul.innerHTML=list.map((c,i)=>`<li class="${i===act?'act':''}" data-i="${i}"><img src="${esc(c.image)}" alt="" style="width:26px;border-radius:2px"><span><b>${esc(c.name)}</b> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${eur(c.price??c.price_foil)}</span></span></li>`).join('')};
+  const add=c=>{ul.hidden=true;inp.value='';list=[];call(api(`/api/decks/${d.id}/cards`,{method:'POST',body:{card_id:c.id,board:$('#dk-board').value}}),'Added '+c.name).then(()=>$('#dk-q')&&$('#dk-q').focus())};
+  inp.addEventListener('input',debounce(async()=>{const q=inp.value.trim(),my=++seq;if(q.length<2){list=[];return draw()}
+    try{const r=await api('/api/cards/search?q='+encodeURIComponent(q));if(my!==seq)return;list=r.slice(0,12);act=0;draw()}catch(e){toast(e.message,'err')}},300));
+  inp.addEventListener('keydown',e=>{if(ul.hidden)return;if(e.key==='ArrowDown'){act=Math.min(act+1,list.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){act=Math.max(act-1,0);draw();e.preventDefault()}else if(e.key==='Enter'&&list[act]){add(list[act])}else if(e.key==='Escape')ul.hidden=true});
+  ul.addEventListener('mousedown',e=>{const li=e.target.closest('li');if(li){e.preventDefault();add(list[+li.dataset.i])}});
+  inp.addEventListener('blur',()=>setTimeout(()=>ul.hidden=true,150));
 }
 
 /* ------------------------------------------------------------ boot */
