@@ -206,6 +206,13 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .dk-row select{padding:4px 6px;font-size:13px}
 .have{font-size:12px;font-weight:700;color:var(--accent)}.need{font-size:12px;font-weight:700;color:var(--warn)}
 @media (max-width:700px){.dk-row{grid-template-columns:52px 1fr 70px 30px}.dk-row img,.dk-row .hide-s{display:none}}
+.info{position:relative;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1px solid var(--muted);color:var(--muted);font:700 11px/1 Georgia,serif;font-style:italic;cursor:help;flex:none}
+.info:hover,.info:focus{color:var(--ink);border-color:var(--ink);outline:none}
+.info .tip{display:none;position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%);width:min(380px,86vw);z-index:20;
+  background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.25);
+  padding:12px 14px;font:400 12.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;text-align:left;cursor:default}
+.info:hover .tip,.info:focus .tip,.info:focus-within .tip{display:block}
+.info .tip b{font-weight:700}.info .tip p{margin:0 0 8px}.info .tip p:last-child{margin:0}
 /* dialogs */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(10,10,10,.45)}
@@ -877,7 +884,12 @@ async function loadProducts(code,setName){
   if(S.coll!==code)return;
   const short=n=>n.startsWith(setName+' ')?n.slice(setName.length+1):n;
   const val=(p,v)=>p.cards.length||p.packs.some(x=>x.ev!=null)?eur(v):'<span class="muted" title="Not estimated: collector and special boosters vary too much">n/a</span>';
-  el.innerHTML=`<div class="toolbar"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="rp" ${reprints?'checked':''}> Count reprints I own from other sets as not new</label></div>
+  el.innerHTML=`<div class="toolbar"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="rp" ${reprints?'checked':''}> Count reprints I own from other sets as not new</label>
+      <span class="info" tabindex="0" aria-label="How this is calculated">i<span class="tip" role="tooltip">
+        <p><b>Value</b>: every card in the product × its Cardmarket trend price (the foil price for foil cards). Boosters inside count at their estimated value: the average price per rarity × the booster's usual slots. Collector and special boosters aren't estimated.</p>
+        <p><b>New to you</b>: only cards you don't own yet, and each of them once, so extra copies or a foil next to a non-foil add nothing. For boosters inside, the estimate counts only cards you don't own.</p>
+        <p><b>Off</b> (default): a card counts as owned only if you have it <i>from that same set</i>. A Sol Ring printed in this precon is new to you even if you own a Sol Ring from Commander Masters.</p>
+        <p><b>On</b>: owning the card in <i>any</i> printing from any set counts, so reprints you already have aren't new.</p></span></span></div>
     ${r.products.length?`<div class="prow-head"><span>Product</span><span>Cost</span><span>Value</span><span class="hide-s">New to you</span><span class="hide-s">Verdict</span></div>
     ${r.products.map((p,i)=>`<button class="prow" data-i="${i}"><span><span class="n">${esc(short(p.name))}</span><br><span class="muted small">${esc(PCAT[p.category]||p.category||'')}${p.set_code!==code?' · '+esc(p.set_code.toUpperCase()):''}</span></span>
       <span class="num money">${eur(p.cost)}</span><span class="num">${val(p,p.value)}</span><span class="num hide-s">${val(p,p.new_value)}</span>
