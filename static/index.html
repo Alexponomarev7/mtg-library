@@ -175,17 +175,18 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .ccard.miss:hover img{opacity:.7}
 .ccard .cn{display:block;font-size:11.5px;color:var(--muted);padding:3px 2px 0;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ccard .price-chip{top:5px;right:5px;left:auto;bottom:auto}
+.ccard .own.alt{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
 .ccard .own{position:absolute;top:5px;left:5px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg button{border:0;background:var(--panel);padding:6px 12px;font-weight:600;color:var(--muted)}
 .seg button.on{background:var(--accent-soft);color:var(--ink)}
-.prow{display:grid;grid-template-columns:1fr 90px 90px 90px 150px;gap:10px;align-items:center;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:6px;cursor:pointer;text-align:left;width:100%}
+.prow{display:grid;grid-template-columns:1fr 90px 90px 120px 150px;gap:10px;align-items:center;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:6px;cursor:pointer;text-align:left;width:100%}
 .prow:hover{border-color:var(--muted)}
 .prow.open{border-color:var(--accent)}
 .prow .n{font-weight:650}
 .prow .num{text-align:right;font-variant-numeric:tabular-nums}
-.prow-head{display:grid;grid-template-columns:1fr 90px 90px 90px 150px;gap:10px;padding:0 12px 6px;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:650}
-.prow-head span:not(:first-child){text-align:right}
+.prow-head{display:grid;grid-template-columns:1fr 90px 90px 120px 150px;gap:10px;padding:0 12px 6px;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:650}
+.prow-head>span:not(:first-child){text-align:right}
 .pdetail{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:-2px 0 10px}
 .plist{list-style:none;margin:0;padding:0;font-size:13px;columns:2 260px;column-gap:24px}
 .plist li{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--line);break-inside:avoid}
@@ -213,6 +214,15 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
   padding:12px 14px;font:400 12.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;text-align:left;cursor:default}
 .info:hover .tip,.info:focus .tip,.info:focus-within .tip{display:block}
 .info .tip b{font-weight:700}.info .tip p{margin:0 0 8px}.info .tip p:last-child{margin:0}
+.info .tip{text-transform:none;letter-spacing:normal;white-space:normal}
+.info.r .tip{left:auto;right:-8px;transform:none}
+.info .tip .f{display:block;margin:6px 0 8px;padding:7px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+  font:15px/1.6 "Cambria Math","STIX Two Math","Latin Modern Math",Georgia,serif;color:var(--ink);overflow-x:auto;white-space:nowrap;text-align:left}
+.info .tip:has(.f){width:min(460px,90vw)}
+.info .tip .f sub,.info .tip .f sup{font-size:.72em}
+.info .tip .w{color:var(--muted);font-size:12px}
+.prow-head>span{display:flex;align-items:center;gap:5px}
+.prow-head>span:not(:first-child){justify-content:flex-end}
 /* dialogs */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(10,10,10,.45)}
@@ -833,7 +843,7 @@ async function openSet(code){
       <div style="flex:1;min-width:200px"><h2 style="display:flex;gap:8px;align-items:center"><img class="seticon" src="${esc(s.icon||'')}" alt="" style="width:24px;height:24px">${esc(s.name)}</h2>
       <div class="muted small">${esc(s.code.toUpperCase())} · ${esc(s.released_at||'')} · ${esc(s.set_type||'')}</div></div></div>
     <div class="tiles">
-      ${tile('Completion',`${st.owned_main} / ${st.main_count}`,`${pct}% of the main set`)}
+      ${tile('Completion',`${st.owned_main} / ${st.main_count}`,`${pct}% of the main set · any printing counts`)}
       ${tile('Copies owned',st.owned_cards,'all printings')}
       ${tile('Value owned',eur(st.value_owned),'Cardmarket trend')}
       ${tile('Missing as singles',eur(st.missing_cost),`${st.main_count-st.owned_main} cards`)}
@@ -857,7 +867,7 @@ async function openSet(code){
       :'<p class="muted small" style="margin:0">No booster prices found on Cardmarket for this set. Press “Update prices” in Binders & boxes if you haven’t since this tab was added.</p>'}
     </div>
     <div class="toolbar"><h3 class="sub" style="margin:0">Cards</h3>
-      <div class="seg" id="cf">${['all','missing','owned'].map(k=>`<button data-f="${k}" class="${k==='all'?'on':''}">${k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
+      <div class="seg" id="cf">${[['all','All'],['owned','Owned'],['other','Other printing'],['missing','Missing']].map(([k,v])=>`<button data-f="${k}" class="${k==='all'?'on':''}" title="${{all:'Every card',owned:'You have this exact printing',other:'You have the card, but in a different printing',missing:'You have no printing of this card'}[k]}">${v}</button>`).join('')}</div>
       <label class="small" style="display:flex;gap:5px;align-items:center"><input type="checkbox" id="cx"> show extras/variants</label></div>
     <div class="cgrid" id="cgrid"></div></div>
     <div id="sv-products" hidden></div>`;
@@ -867,14 +877,40 @@ async function openSet(code){
     if(b.dataset.v==='products'&&!$('#sv-products').dataset.loaded)loadProducts(code,s.name)});
   let f='all';
   const draw=()=>{const ex=$('#cx').checked;
-    const cs=r.cards.filter(c=>(ex||c.main)&&(f==='all'||(f==='owned'?c.owned_name:!c.owned_name)));
-    $('#cgrid').innerHTML=cs.length?cs.map(c=>`<a class="ccard ${c.owned_name?'':'miss'}" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="${esc(c.name)} — open on Cardmarket">
-      <img src="${esc(c.image)}" alt="" loading="lazy">${c.owned?`<span class="own">×${c.owned}</span>`:''}${(c.price??c.price_foil)!=null?`<span class="price-chip">${eur(c.price??c.price_foil)}</span>`:''}
+    const state=c=>c.owned?'owned':c.owned_name?'other':'missing';
+    const cs=r.cards.filter(c=>(ex||c.main)&&(f==='all'||state(c)===f));
+    $('#cgrid').innerHTML=cs.length?cs.map(c=>`<a class="ccard ${c.owned?'':'miss'}" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="${esc(c.name)}${state(c)==='other'?' — you have it in another printing':''} — open on Cardmarket">
+      <img src="${esc(c.image)}" alt="" loading="lazy">${c.owned?`<span class="own">×${c.owned}</span>`:c.owned_name?'<span class="own alt">other print</span>':''}${(c.price??c.price_foil)!=null?`<span class="price-chip">${eur(c.price??c.price_foil)}</span>`:''}
       <span class="cn">#${esc(c.collector_number)} ${esc(c.name)}</span></a>`).join(''):'<div class="empty" style="grid-column:1/-1">Nothing here.</div>'};
   $$('#cf button').forEach(b=>b.onclick=()=>{f=b.dataset.f;$$('#cf button').forEach(x=>x.classList.toggle('on',x===b));draw()});
   $('#cx').onchange=draw;draw();
 }
 
+const info=(html,cls='')=>`<span class="info ${cls}" tabindex="0" aria-label="How this is calculated">i<span class="tip" role="tooltip">${html}</span></span>`;
+const pbar=r=>`p&#772;<sub>${r}</sub>`;
+const INFO={
+  cost:`<p><b>Cost</b> is what the sealed product sells for on Cardmarket today.</p>
+    <span class="f">C = trend(product)</span>
+    <p class="w">If there's no trend price, Cardmarket's average and then its low price are used. Products that aren't sold separately (cases, kits without a Cardmarket listing) show —.</p>`,
+  value:`<p><b>Value</b> is what the cards inside would sell for as singles.</p>
+    <span class="f">V = &Sigma;<sub>i</sub> q<sub>i</sub>&middot;p<sub>i</sub> + &Sigma;<sub>b</sub> n<sub>b</sub>&middot;EV<sub>b</sub></span>
+    <p class="w">q<sub>i</sub> copies of card i at price p<sub>i</sub> (Cardmarket trend, or foil trend for foil copies). n<sub>b</sub> boosters of type b, each worth EV<sub>b</sub>:</p>
+    <span class="f">EV<sub>play</sub> = 6${pbar('C')} + 3${pbar('U')} + (<sup>6</sup>&frasl;<sub>7</sub>${pbar('R')} + <sup>1</sup>&frasl;<sub>7</sub>${pbar('M')}) + &Sigma;<sub>r</sub> w<sub>r</sub>${pbar('r')} + &Sigma;<sub>r</sub> w<sub>r</sub>${pbar('r')}<sup>foil</sup></span>
+    <span class="f">EV<sub>draft</sub> = 10${pbar('C')} + 3${pbar('U')} + (<sup>7</sup>&frasl;<sub>8</sub>${pbar('R')} + <sup>1</sup>&frasl;<sub>8</sub>${pbar('M')}) + <sup>1</sup>&frasl;<sub>3</sub>&middot;&Sigma;<sub>r</sub> w<sub>r</sub>${pbar('r')}<sup>foil</sup></span>
+    <p class="w">${pbar('r')} = average price of the set's main cards of rarity r (one printing per card, basic lands left out). Wildcard and foil slots: w<sub>C</sub>=0.45, w<sub>U</sub>=0.35, w<sub>R</sub>=0.17, w<sub>M</sub>=0.03. Collector and special boosters have no EV and show n/a.</p>`,
+  newv:`<p><b>New to you</b> is the value of the holes in your collection this product is expected to fill. Every card you don't own counts once, weighted by the chance you actually get it.</p>
+    <span class="f">N = &Sigma;<sub>c &notin; owned</sub> p<sub>c</sub> &middot; P(c)</span>
+    <p class="w">Cards in the fixed contents (decklists, promos): P(c) = 1. Cards that can come from the boosters inside:</p>
+    <span class="f">P(c) = 1 &minus; &prod;<sub>b</sub> (1 &minus; <sup>1</sup>&frasl;<sub>N<sub>r</sub></sub>)<sup>n<sub>b</sub>&middot;s<sub>r</sub></sup></span>
+    <p class="w">N<sub>r</sub> = number of main cards of the card's rarity r, n<sub>b</sub> = boosters of type b, s<sub>r</sub> = slots of rarity r per booster. For a Play Booster s<sub>C</sub>&nbsp;=&nbsp;6.9, s<sub>U</sub>&nbsp;=&nbsp;3.7, s<sub>R</sub>&nbsp;=&nbsp;<sup>6</sup>&frasl;<sub>7</sub>+0.34, s<sub>M</sub>&nbsp;=&nbsp;<sup>1</sup>&frasl;<sub>7</sub>+0.06 (wildcard and foil slots included).</p>
+    <p class="w">So every extra booster adds less: cards you already pulled aren't new any more, and duplicates fill nothing. A box is worth much less than n&nbsp;&times; one booster's new cards and can never exceed what your missing cards cost as singles. A foil copy fills the hole at the regular card's price.</p>`,
+  verdict:`<p><b>Verdict</b> compares the card value with the cost.</p>
+    <span class="f">r = V &divide; C</span>
+    <p class="w"><b>Worth it</b>: r &ge; 100% &nbsp;·&nbsp; <b>Borderline</b>: 75% &le; r &lt; 100% &nbsp;·&nbsp; <b>Buy singles</b>: r &lt; 75%.<br>Bulk commons count here, so it reads higher than the booster verdict on the Cards &amp; boosters view, which uses only cards worth &ge; €0.50.</p>`,
+  reprints:`<p><b>Which cards count as owned</b> for “new to you”:</p>
+    <span class="f">off: owned(c) &hArr; name(c) &isin; names you own from set(c)</span>
+    <span class="f">on: owned(c) &hArr; name(c) &isin; names you own from any set</span>
+    <p class="w">Off (default): a Sol Ring printed in this precon is new even if you own a Sol Ring from Commander Masters. On: reprints you already have aren't new.</p>`};
 const PCAT={booster_box:'Booster box',booster_pack:'Booster',bundle:'Bundle',deck:'Precon deck',multiple_decks:'Decks',
   limited_aid_tool:'Prerelease / draft kit',box_set:'Box set',deck_box:'Deck display',land_station:'Land station',starter_kit:'Starter kit'};
 async function loadProducts(code,setName){
@@ -885,12 +921,8 @@ async function loadProducts(code,setName){
   const short=n=>n.startsWith(setName+' ')?n.slice(setName.length+1):n;
   const val=(p,v)=>p.cards.length||p.packs.some(x=>x.ev!=null)?eur(v):'<span class="muted" title="Not estimated: collector and special boosters vary too much">n/a</span>';
   el.innerHTML=`<div class="toolbar"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="rp" ${reprints?'checked':''}> Count reprints I own from other sets as not new</label>
-      <span class="info" tabindex="0" aria-label="How this is calculated">i<span class="tip" role="tooltip">
-        <p><b>Value</b>: every card in the product × its Cardmarket trend price (the foil price for foil cards). Boosters inside count at their estimated value: the average price per rarity × the booster's usual slots. Collector and special boosters aren't estimated.</p>
-        <p><b>New to you</b>: only cards you don't own yet, and each of them once, so extra copies or a foil next to a non-foil add nothing. For boosters inside, the estimate counts only cards you don't own.</p>
-        <p><b>Off</b> (default): a card counts as owned only if you have it <i>from that same set</i>. A Sol Ring printed in this precon is new to you even if you own a Sol Ring from Commander Masters.</p>
-        <p><b>On</b>: owning the card in <i>any</i> printing from any set counts, so reprints you already have aren't new.</p></span></span></div>
-    ${r.products.length?`<div class="prow-head"><span>Product</span><span>Cost</span><span>Value</span><span class="hide-s">New to you</span><span class="hide-s">Verdict</span></div>
+      ${info(INFO.reprints)}</div>
+    ${r.products.length?`<div class="prow-head"><span>Product</span><span>Cost ${info(INFO.cost,'r')}</span><span>Value ${info(INFO.value,'r')}</span><span class="hide-s">New to you ${info(INFO.newv,'r')}</span><span class="hide-s">Verdict ${info(INFO.verdict,'r')}</span></div>
     ${r.products.map((p,i)=>`<button class="prow" data-i="${i}"><span><span class="n">${esc(short(p.name))}</span><br><span class="muted small">${esc(PCAT[p.category]||p.category||'')}${p.set_code!==code?' · '+esc(p.set_code.toUpperCase()):''}</span></span>
       <span class="num money">${eur(p.cost)}</span><span class="num">${val(p,p.value)}</span><span class="num hide-s">${val(p,p.new_value)}</span>
       <span class="num hide-s">${p.cost&&(p.cards.length||p.packs.some(x=>x.ev!=null))?verdict(p.value,p.cost):''}</span></button><div class="pdetail" id="pd-${i}" hidden></div>`).join('')}`
@@ -907,9 +939,9 @@ function productDetail(p,reprints){
   return `<div class="tiles">
       ${tile('Cost',eur(p.cost),p.cardmarket_id?`<a href="https://www.cardmarket.com/en/Magic/Products?idProduct=${p.cardmarket_id}" target="_blank" rel="noopener" style="color:var(--accent)">Cardmarket ↗</a>`:'not on Cardmarket')}
       ${tile('Value in cards',est?eur(p.value):'—',p.cost&&est?`${Math.round(100*p.value/p.cost)}% of the cost`:'')}
-      ${tile('New cards for you',est?eur(p.new_value):'—',`${newCount} new card${newCount===1?'':'s'}${reprints?' · reprints counted':''}`)}
+      ${tile('New cards for you',est?eur(p.new_value):'—',[newCount?`${newCount} new card${newCount===1?'':'s'} for sure`:'',p.packs.some(x=>x.ev!=null)?'expected from boosters':'',reprints?'reprints counted':''].filter(Boolean).join(' + ')||'none')}
     </div>
-    ${p.packs.length?`<h3 class="sub">Boosters inside</h3><ul class="plist" style="margin-bottom:12px">${p.packs.map(x=>`<li><span>${x.count} × ${esc(x.set_name)} ${esc(x.kind)}</span><b>${x.ev!=null?`${eur(x.ev*x.count)} <span class="muted small">(${eur(x.ev)} each)</span>`:'<span class="muted">not estimated</span>'}</b></li>`).join('')}</ul>`:''}
+    ${p.packs.length?`<h3 class="sub">Boosters inside</h3><ul class="plist" style="margin-bottom:12px">${p.packs.map(x=>`<li><span>${x.count} × ${esc(x.set_name)} ${esc(x.kind)}</span><b>${x.ev!=null?`${eur(x.ev*x.count)} <span class="muted small">(${eur(x.ev)} each · new to you ≈ ${eur(x.new_total)})</span>`:'<span class="muted">not estimated</span>'}</b></li>`).join('')}</ul>`:''}
     ${p.cards.length?`<h3 class="sub">Cards inside (${p.cards.reduce((a,c)=>a+c.count,0)})</h3><ul class="plist">${p.cards.map(c=>`<li class="${c.new?'new':''}"><span>${c.count>1?c.count+' × ':''}<a href="${esc(cmUrl(c))}" target="_blank" rel="noopener" style="color:var(--ink)">${esc(c.name)}</a> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}${c.foil?' · foil':''}</span></span><b>${eur(c.unit==null?null:c.unit*c.count)}${c.new?' <span class="verdict good" style="padding:0 5px">new</span>':''}</b></li>`).join('')}</ul>`:''}
     ${p.other.length?`<p class="muted small" style="margin:10px 0 0">Also inside: ${p.other.map(esc).join(' · ')}</p>`:''}
     ${p.unpriced?`<p class="muted small" style="margin:6px 0 0">${p.unpriced} item${p.unpriced>1?'s':''} couldn't be matched to cards (often a basic land pack) and isn't counted.</p>`:''}

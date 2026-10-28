@@ -1140,6 +1140,32 @@ def r_collection_set(db, q, b, code):
                                                                                           owned_names)}
 
 
+def slots_per_rarity(model):
+    """Expected number of slots of each rarity in one booster (wildcard and foil slots spread by WILD_ODDS)."""
+    com, unc, rm, myth, wild, foil = model
+    extra = wild + foil
+    return {"common": com + extra * WILD_ODDS["common"], "uncommon": unc + extra * WILD_ODDS["uncommon"],
+            "rare": rm * (1 - myth) + extra * WILD_ODDS["rare"], "mythic": rm * myth + extra * WILD_ODDS["mythic"]}
+
+
+def booster_holes(main, owned, model, n, holes, key):
+    """Chance that each card you don't own still isn't in any of n boosters: every slot of rarity r picks one of
+    the N_r cards of that rarity, so P(missed) = (1 - 1/N_r) ** (n * s_r). Multiplies into holes[key] = [price, P]."""
+    pool = {}
+    for c in main:
+        if "Basic Land" not in (c["type_line"] or ""):
+            pool.setdefault(c["rarity"], []).append(c)
+    slots = slots_per_rarity(model)
+    for r, cs in pool.items():
+        miss = (1 - 1 / len(cs)) ** (n * slots.get(r, 0))
+        for c in cs:
+            if owned(c["name"]):
+                continue
+            h = holes.setdefault(key(c), [0.0, 1.0])
+            h[0] = max(h[0], c["price"] or c["price_foil"] or 0)
+            h[1] *= miss
+
+
 def booster_ev(main, owned, model, new_only=False, floor=0.0):
     """Expected card value of one booster: average price per rarity x the model's slots.
     owned(name) says whether a card counts as already owned (for new_only)."""
@@ -1352,12 +1378,16 @@ class ProductValuer:
                 cards[k] = {**c, "foil": foil, "count": 0, "unit": unit, "new": not self.owns(c["name"], c["set_code"])}
             cards[k]["count"] += cnt
         value = sum((c["unit"] or 0) * c["count"] for c in cards.values())
-        # each new card counts once: extra copies (or a foil and a non-foil) aren't new
-        best = {}
+        # "new to you" counts every card you don't own once, weighted by the chance you actually get it:
+        # holes[card] = [price, P(not getting it)]. Cards in the fixed contents are certain (P = 0); for boosters
+        # P shrinks with every booster, so a box isn't worth n x one booster's new cards.
+        key = (lambda c, code=None: c["name"]) if self.reprints else \
+            (lambda c, code=None: (code or c["set_code"], c["name"]))
+        holes = {}
         for c in cards.values():
-            if c["new"] and (c["unit"] or 0) > best.get(c["name"], 0):
-                best[c["name"]] = c["unit"] or 0
-        new_value = sum(best.values())
+            if c["new"]:
+                h = holes.setdefault(key(c), [0.0, 1.0])
+                h[0], h[1] = max(h[0], c["unit"] or 0), 0.0
         packs = {}
         for pset, pcode, cnt in acc["packs"]:
             packs[(pset, pcode)] = packs.get((pset, pcode), 0) + cnt
@@ -1369,11 +1399,16 @@ class ProductValuer:
             ev = booster_ev(main, lambda n: self.owns(n, pset), model) if model else None
             ev_new = booster_ev(main, lambda n: self.owns(n, pset), model, new_only=True) if model else None
             s = self.db.execute("SELECT name FROM sets WHERE code=?", (pset,)).fetchone()
-            pack_out.append({"set_code": pset, "set_name": s[0] if s else pset.upper(), "kind": kind or pcode,
-                             "count": cnt, "ev": ev, "ev_new": ev_new})
+            new_total = None
             if ev is not None:
                 value += ev * cnt
-                new_value += ev_new * cnt
+                own = {}  # this pack group alone, for the breakdown
+                booster_holes(main, lambda n: self.owns(n, pset), model, cnt, own, lambda c: c["name"])
+                new_total = round(sum(pr * (1 - pm) for pr, pm in own.values()), 2)
+                booster_holes(main, lambda n: self.owns(n, pset), model, cnt, holes, lambda c, ps=pset: key(c, ps))
+            pack_out.append({"set_code": pset, "set_name": s[0] if s else pset.upper(), "kind": kind or pcode,
+                             "count": cnt, "ev": ev, "ev_new": ev_new, "new_total": new_total})
+        new_value = sum(pr * (1 - pm) for pr, pm in holes.values())
         cost = None
         if prod.get("mcm"):
             r = self.db.execute("SELECT trend, avg, low FROM cm_prices WHERE id_product=?", (prod["mcm"],)).fetchone()
