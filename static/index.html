@@ -223,6 +223,9 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .info .tip .w{color:var(--muted);font-size:12px}
 .prow-head>span{display:flex;align-items:center;gap:5px}
 .prow-head>span:not(:first-child){justify-content:flex-end}
+.grid-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin:10px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650}
+.grid-divider::after{content:"";flex:1;height:1px;background:var(--line);order:1}
+.grid-divider span:last-child{order:2;text-transform:none;letter-spacing:0;font-weight:500}
 /* dialogs */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(10,10,10,.45)}
@@ -341,6 +344,8 @@ const LANGS=[['en','English'],['nl','Dutch'],['ru','Russian'],['de','German'],['
 const cmUrl=c=>c.cardmarket_id?`https://www.cardmarket.com/en/Magic/Products?idProduct=${c.cardmarket_id}`
   :`https://www.cardmarket.com/en/Magic/Products/Search?searchString=${encodeURIComponent(c.name)}`;
 const cmBtn=c=>`<a class="btn" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="Open this printing on Cardmarket">Cardmarket ↗</a>`;
+const storeOpts=(l,label=x=>`${esc(x.name)} (${x.kind})`)=>{const r=l.filter(x=>!x.deck),d=l.filter(x=>x.deck),o=x=>`<option value="${x.id}">${label(x)}</option>`;
+  return r.map(o).join('')+(d.length?`<optgroup label="Deck boxes">${d.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</optgroup>`:'')};
 const eur=v=>v==null?'—':'€'+Number(v).toFixed(2);
 const LANG_NAME=Object.fromEntries(LANGS);
 const langName=k=>LANG_NAME[k]||k;
@@ -483,7 +488,7 @@ function renderAddPanel(r,placed){
     ${r.notes.map(n=>`<div class="notes">${esc(n)}</div>`).join('')}
     ${sugg?`<h3 class="sub">Where to put it</h3>${sugg}`:''}
     <h3 class="sub" style="margin-top:14px">Somewhere else</h3>
-    <div class="other"><select id="o-store">${S.storages.map(s=>`<option value="${s.id}">${esc(s.name)} (${s.kind})</option>`).join('')}</select>
+    <div class="other"><select id="o-store">${storeOpts(S.storages)}</select>
       <button class="btn" id="o-put">Put here</button></div>`;
   $('#o-foil').onchange=e=>o.foil=e.target.checked;
   $('#o-qty').onchange=e=>o.qty=Math.max(1,+e.target.value||1);
@@ -491,7 +496,7 @@ function renderAddPanel(r,placed){
   $('#o-lang').onchange=e=>o.lang=e.target.value;
   $$('#add-panel .sug').forEach(b=>b.onclick=()=>putCard(+b.dataset.sid,b.dataset.slot===''?null:+b.dataset.slot));
   $('#o-put').onclick=()=>{const v=$('#o-store').value;if(v)putCard(+v,null)};
-  if(!S.storages.length)api('/api/storages').then(l=>{S.storages=l;if(S.sug===r)$('#o-store').innerHTML=l.map(s=>`<option value="${s.id}">${esc(s.name)} (${s.kind})</option>`).join('')});
+  if(!S.storages.length)api('/api/storages').then(l=>{S.storages=l;if(S.sug===r)$('#o-store').innerHTML=storeOpts(l)});
 }
 async function putCard(storage_id,slot){
   const c=S.sug.card,o=S.opt;
@@ -514,7 +519,7 @@ async function loadStorages(){
   await refreshStorages();
   const el=$('#storage-list');
   if(!S.storages.length){el.innerHTML='<div class="empty" style="grid-column:1/-1">No binders or boxes yet. Create your first one above.</div>';return}
-  el.innerHTML=S.storages.map(s=>{
+  const card=s=>{
     const cap=s.capacity_total,pct=cap?Math.min(100,Math.round(100*s.count/cap)):0;
     return `<div class="panel st-card" style="--c:${esc(s.color||'')}" data-open="${s.id}">
       <div style="display:flex;justify-content:space-between"><span class="st-name">${esc(s.name)}</span><span class="tag">${s.deck?'deck box':s.kind}</span></div>
@@ -522,7 +527,9 @@ async function loadStorages(){
       <div class="chips">${s.deck?'<span class="muted small">holds its deck only</span>':s.sets.length?s.sets.map(x=>`<span class="chip" title="${esc(x.name||'')}">${esc(x.set_code)}</span>`).join(''):'<span class="muted small">any set (general)</span>'}</div>
       <div class="small" style="display:flex;justify-content:space-between"><span><b>${s.count}</b>${cap?` / ${cap}`:''} cards</span><span class="money">${eur(s.value)}</span></div>${cap?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}
       ${s.space&&s.mode==='set_order'?`<div class="muted small" style="margin-top:6px">${s.space.reserved} reserved by sets · ${s.space.free} pockets unreserved</div>`:''}
-    </div>`}).join('');
+    </div>`};
+  const regular=S.storages.filter(s=>!s.deck),decks=S.storages.filter(s=>s.deck);
+  el.innerHTML=regular.map(card).join('')+(decks.length?`<div class="grid-divider"><span>Deck boxes</span><span class="muted small">${decks.length} · ${eur(decks.reduce((a,s)=>a+s.value,0))}</span></div>`+decks.map(card).join(''):'');
 }
 $('#storage-list').addEventListener('click',e=>{const c=e.target.closest('[data-open]');if(c)openStorage(+c.dataset.open,1)});
 $$('[data-new]').forEach(b=>b.onclick=()=>storageForm(b.dataset.new));
@@ -758,7 +765,7 @@ const moveCtl=()=>`<div class="other"><select id="mv-to"><option value="">Loadin
 function bindMove(it,st,dlg,after=reopen(st)){
   const sel=$('#mv-to'),go=$('#mv-go');
   refreshStorages().then(l=>{const o=l.filter(x=>x.id!==st.id);
-    sel.innerHTML=o.length?o.map(x=>`<option value="${x.id}">${esc(x.name)} (${x.kind})</option>`).join(''):'<option value="">No other binder or box yet</option>';
+    sel.innerHTML=o.length?storeOpts(o):'<option value="">No other binder or box yet</option>';
     go.disabled=!o.length}).catch(e=>toast(e.message,'err'));
   go.onclick=async()=>{const to=sel.value;if(!to)return;
     try{const r=await api('/api/items/'+it.id,{method:'PUT',body:{storage_id:+to,slot:'auto'}});dlg.close();toast('Move it to: '+r.item.location);loadStats();after()}
