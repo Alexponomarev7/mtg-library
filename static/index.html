@@ -1699,12 +1699,22 @@ async function loadAccount(){
       <input type="password" name="old" placeholder="Current password" autocomplete="current-password" required>
       <input type="password" name="new" placeholder="New password (10+ characters)" autocomplete="new-password" minlength="10" required>
       <button class="btn primary">Change</button></form></div>
-    ${u.is_admin?'<div class="panel" id="acct-invites"></div><div class="panel" id="acct-users"></div>':''}`;
+    ${u.is_admin?`<div class="panel" id="acct-invites"></div><div class="panel" id="acct-users"></div>
+    <div class="panel"><h3 style="margin:0 0 4px">Backup</h3>
+      <div class="muted small" style="margin-bottom:10px">One .zip with every account and collection (library.db + users/). Restoring replaces <b>everything</b> on this server with the backup, so it also moves a library between your computer and a hosted copy.</div>
+      <form id="restore-form"><a class="btn primary" href="/api/admin/backup">Download backup</a>
+        <input type="file" name="f" accept=".zip,application/zip" required><button class="btn danger">Restore…</button></form></div>`:''}`;
   $('#acct-out').onclick=async()=>{await api('/api/logout',{method:'POST'}).catch(()=>{});location.hash='';location.reload()};
   $('#pw-form').onsubmit=async e=>{e.preventDefault();const f=e.target;
     try{await api('/api/account/password',{method:'POST',body:{old:f.old.value,new:f.new.value}});f.reset();toast('Password changed; other devices were signed out')}
     catch(err){toast(err.message,'err')}};
-  if(u.is_admin){loadInvites();loadUsers()}
+  if(u.is_admin){loadInvites();loadUsers();
+    $('#restore-form').onsubmit=async e=>{e.preventDefault();const file=e.target.f.files[0];
+      if(!file||!confirm(`Replace ALL accounts and collections on this server with ${file.name}? This can't be undone - download a backup first if unsure.`))return;
+      try{const r=await fetch('/api/admin/restore',{method:'POST',headers:{'Content-Type':'application/zip'},body:file});
+        const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('Error '+r.status));
+        alert(`Restored ${j.users} account${j.users===1?'':'s'}. Sign in again with an account from the backup.`);location.hash='';location.reload()}
+      catch(err){toast(err.message,'err')}}}
 }
 const inviteLink=c=>`${location.origin}/#register?code=${encodeURIComponent(c)}`;
 async function loadInvites(){

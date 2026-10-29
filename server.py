@@ -27,6 +27,7 @@ import secrets
 import shutil
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -34,6 +35,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -2698,6 +2700,89 @@ def r_users(db, q, b):
     return out
 
 
+# ---------------------------------------------------------------- backup & restore
+# A backup is a zip of library.db and users/<id>.db - unzipped next to server.py it is a working library, so the same
+# file moves a library between a hosted copy and your computer in either direction.
+
+MAX_UPLOAD = 300 * 1024 * 1024
+
+
+def copy_db(src_path, dst_path):
+    """A consistent copy of a live database (SQLite's backup API, safe while the app is writing to it)."""
+    src, dst = sqlite3.connect(src_path, timeout=30), sqlite3.connect(dst_path, timeout=30)
+    try:
+        src.backup(dst)
+    finally:
+        src.close()
+        dst.close()
+
+
+@route("GET", "/api/admin/backup", "admin")
+def r_backup(db, q, b):
+    buf = io.BytesIO()
+    with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        files = [("library.db", DB_PATH)] + [(f"users/{u}.db", user_db_path(u)) for u in user_ids(db)]
+        for arc, path in files:
+            if os.path.exists(path):
+                out = os.path.join(tmp, "copy.db")
+                copy_db(path, out)
+                z.write(out, arc)
+                os.remove(out)
+    return ("raw", buf.getvalue(), "application/zip",
+            {"Content-Disposition": f'attachment; filename="card-library-{time.strftime("%Y-%m-%d")}.zip"'})
+
+
+@route("POST", "/api/admin/restore", "admin")
+def r_restore(db, q, b):
+    """Replace the whole library (every account and collection) with a backup's contents."""
+    if not isinstance(b, bytes):
+        raise ApiError(400, "Upload a backup .zip")
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            z = zipfile.ZipFile(io.BytesIO(b))
+            names = set(z.namelist())
+        except zipfile.BadZipFile:
+            raise ApiError(400, "This is not a zip file")
+        if "library.db" not in names:
+            raise ApiError(400, "No library.db in this zip - is it a Card Library backup?")
+        files = {"library.db": os.path.join(tmp, "library.db")}
+        files.update({n: os.path.join(tmp, n.replace("/", "_")) for n in names if re.fullmatch(r"users/\d+\.db", n)})
+        for n, path in files.items():
+            with open(path, "wb") as f:
+                f.write(z.read(n))
+        try:
+            chk = sqlite3.connect(files["library.db"])
+            ok = chk.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+            have = {r[0] for r in chk.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            ids = [r[0] for r in chk.execute("SELECT id FROM users")] if "users" in have else []
+            admin = "users" in have and chk.execute("SELECT 1 FROM users WHERE is_admin=1").fetchone()
+            chk.close()
+        except sqlite3.DatabaseError:
+            raise ApiError(400, "library.db in this zip is not a valid database")
+        if not ok or not admin:
+            raise ApiError(400, "This backup has no admin account - it can't be restored")
+        db.commit()
+        copy_db(files["library.db"], DB_PATH)
+        os.makedirs(USERS_DIR, exist_ok=True)
+        for uid in ids:
+            arc = f"users/{uid}.db"
+            if arc in files:
+                copy_db(files[arc], user_db_path(uid))
+        # collections of accounts the backup doesn't have (or has no file for) must not reappear under a reused id
+        for fn in os.listdir(USERS_DIR):
+            m = re.fullmatch(r"(\d+)\.db", fn)
+            if m and (int(m[1]) not in ids or f"users/{m[1]}.db" not in files):
+                u = sqlite3.connect(os.path.join(USERS_DIR, fn), timeout=30)
+                u.execute("PRAGMA foreign_keys=OFF")
+                u.executescript(USER_SCHEMA)
+                for t in USER_TABLES + ("user_meta",):
+                    u.execute(f"DELETE FROM {t}")
+                u.commit()
+                u.close()
+    init_db()  # schema upgrades if the backup came from an older version
+    return {"ok": True, "users": len(ids)}
+
+
 def cli(args):
     """python3 server.py create-admin <name> | reset-password <name> | invite [count]"""
     db = connect()
@@ -2787,7 +2872,11 @@ class Handler(BaseHTTPRequestHandler):
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             body = {}
             n = int(self.headers.get("Content-Length") or 0)
-            if n:
+            if n > MAX_UPLOAD:
+                return self._send(413, {"error": "Too large"})
+            if n and self.headers.get("Content-Type") == "application/zip":
+                body = self.rfile.read(n)  # a backup to restore: the route gets the bytes
+            elif n:
                 try:
                     body = json.loads(self.rfile.read(n) or b"{}")
                 except ValueError:
