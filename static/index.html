@@ -355,6 +355,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 .auth-card .err{color:var(--warn);font-size:13px;min-height:1em}
 .auth-tabs{display:flex;gap:4px;background:var(--panel2);padding:3px;border-radius:9px;border:1px solid var(--line)}
 .auth-tabs button{flex:1}
+.reqdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warn);vertical-align:middle}
 .userbtn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:5px 10px;font-weight:600;font-size:13px}
 .acct{display:grid;gap:16px;max-width:760px}
 .acct .panel{padding:16px}
@@ -1728,21 +1729,24 @@ $('#auth-form').onsubmit=async e=>{
 };
 function startApp(user){
   S.user=user;$('#auth').hidden=true;$('#app').hidden=false;
-  $('#userbtn').textContent=user.username+(user.is_admin?' ★':'');
+  showUserBtn(user);
   loadStats();
   api('/api/storages').then(l=>S.storages=l).catch(()=>{});
   route();
 }
 $('#userbtn').onclick=()=>setTab('account');
+function showUserBtn(u){$('#userbtn').innerHTML=esc(u.username)+(u.is_admin?' ★':'')+(u.share_requests?' <span class="reqdot" title="Someone invites you to share binders"></span>':'')}
+async function refreshMe(){try{const r=await api('/api/me');if(r.user){S.user=r.user;showUserBtn(r.user)}}catch(e){}}
 
 async function loadAccount(){
   const el=$('#account'),u=S.user;
-  el.innerHTML=`<div class="panel"><h2>${esc(u.username)}</h2><div class="muted small">${u.is_admin?'Admin · ':''}Your binders, decks, wishlist and history are yours alone; card data and prices are shared.</div>
+  el.innerHTML=`<div class="panel"><h2>${esc(u.username)}</h2><div class="muted small">${u.is_admin?'Admin · ':''}Card data and prices are shared by everyone on this site; your binders only with the partners below.</div>
       <div style="margin-top:12px"><button class="btn" id="acct-out">Sign out</button></div></div>
     <div class="panel"><h3 style="margin:0 0 10px">Change password</h3><form id="pw-form">
       <input type="password" name="old" placeholder="Current password" autocomplete="current-password" required>
       <input type="password" name="new" placeholder="New password (10+ characters)" autocomplete="new-password" minlength="10" required>
       <button class="btn primary">Change</button></form></div>
+    <div class="panel" id="acct-share"></div>
     ${u.is_admin?`<div class="panel" id="acct-invites"></div><div class="panel" id="acct-users"></div>
     <div class="panel"><h3 style="margin:0 0 4px">Backup</h3>
       <div class="muted small" style="margin-bottom:10px">One .zip with every account and collection (library.db + users/). Restoring replaces <b>everything</b> on this server with the backup, so it also moves a library between your computer and a hosted copy.</div>
@@ -1752,6 +1756,7 @@ async function loadAccount(){
   $('#pw-form').onsubmit=async e=>{e.preventDefault();const f=e.target;
     try{await api('/api/account/password',{method:'POST',body:{old:f.old.value,new:f.new.value}});f.reset();toast('Password changed; other devices were signed out')}
     catch(err){toast(err.message,'err')}};
+  loadSharing();
   if(u.is_admin){loadInvites();loadUsers();
     $('#restore-form').onsubmit=async e=>{e.preventDefault();const file=e.target.f.files[0];
       if(!file||!confirm(`Replace ALL accounts and collections on this server with ${file.name}? This can't be undone - download a backup first if unsure.`))return;
@@ -1760,12 +1765,51 @@ async function loadAccount(){
         alert(`Restored ${j.users} account${j.users===1?'':'s'}. Sign in again with an account from the backup.`);location.hash='';location.reload()}
       catch(err){toast(err.message,'err')}}}
 }
+// Partners (e.g. a spouse) can use the same binders & boxes; decks, wishlist and liked cards stay each one's own.
+async function loadSharing(r){
+  const el=$('#acct-share');if(!el)return;
+  try{r=r||await api('/api/sharing')}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  const others=r.partners.map(p=>({...p,owner:!r.is_owner&&p.username===r.owner}));
+  el.innerHTML=`${r.incoming.map(x=>`<div class="panel" style="padding:12px;margin-bottom:12px;border-color:var(--accent)">
+      <b>${esc(x.username)}</b> invites you to use ${x.owner===x.username?'their':`${esc(x.owner)}'s`} binders &amp; boxes.
+      <div style="margin-top:8px;display:flex;gap:8px"><button class="btn primary sm" data-acc="${x.id}" data-name="${esc(x.owner)}">Accept</button><button class="btn sm" data-dec="${x.id}">Decline</button></div></div>`).join('')}
+    <h3 style="margin:0 0 4px">Shared binders &amp; boxes</h3>
+    <div class="muted small" style="margin-bottom:10px">Let a partner use the same binders and boxes: the cards, their value and the Hall of fame are the same for you both. Decks, wishlist and liked cards stay each one's own.</div>
+    ${others.length?`<table><tr><th>Shared with</th><th></th></tr>${others.map(p=>`<tr><td>${esc(p.username)}${p.owner?' <span class="muted small">owner of the binders</span>':''}</td>
+      <td style="text-align:right">${p.owner?'':r.is_owner?`<button class="btn sm danger" data-stop="${p.id}" data-name="${esc(p.username)}">Stop sharing</button>`:''}</td></tr>`).join('')}</table>
+      ${r.is_owner?'':`<div style="margin-top:10px"><button class="btn sm danger" data-stop="${S.user.id}" data-self="1">Leave - use binders of my own</button></div>`}`
+      :'<div class="muted small">Nobody else uses your binders.</div>'}
+    <form id="share-user" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input name="u" placeholder="Partner's username" autocomplete="off" required style="width:200px"><button class="btn primary sm">Invite</button>
+      <span class="muted small">they accept it on their Account page</span></form>
+    ${r.sent.length?`<table style="margin-top:8px">${r.sent.map(x=>`<tr><td>${esc(x.username)} <span class="muted small">invited, waiting</span></td>
+      <td style="text-align:right"><button class="btn sm" data-wd="${x.id}">Withdraw</button></td></tr>`).join('')}</table>`:''}
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn sm" id="share-new">Sign-up link</button>
+      <span class="muted small">for someone without an account yet</span></div>
+    ${r.invites.length?`<table style="margin-top:8px">${r.invites.map(x=>`<tr><td class="code">${esc(x.code)}</td><td class="muted">${esc(x.created_at.slice(0,10))}</td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn sm" data-scopy="${esc(x.code)}">Copy link</button> <button class="btn sm danger" data-sdel="${esc(x.code)}">Delete</button></td></tr>`).join('')}</table>`:''}`;
+  $('#share-new').onclick=async()=>{try{const r2=await api('/api/sharing/invite',{method:'POST'});loadSharing(r2);
+    const c=r2.invites[r2.invites.length-1].code;try{await navigator.clipboard.writeText(inviteLink(c));toast('Partner link copied')}catch(e){}}catch(e){toast(e.message,'err')}};
+  $$('[data-scopy]',el).forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(inviteLink(b.dataset.scopy));toast('Partner link copied')}catch(e){prompt('Partner link',inviteLink(b.dataset.scopy))}});
+  $('#share-user').onsubmit=async e=>{e.preventDefault();
+    try{loadSharing(await api('/api/sharing/request',{method:'POST',body:{username:e.target.u.value}}));toast('Invitation sent')}catch(err){toast(err.message,'err')}};
+  $$('[data-wd],[data-dec]',el).forEach(b=>b.onclick=async()=>{loadSharing(await api('/api/sharing/requests/'+(b.dataset.wd||b.dataset.dec),{method:'DELETE'}));refreshMe()});
+  $$('[data-acc]',el).forEach(b=>b.onclick=async()=>{
+    if(!confirm(`Use ${b.dataset.name}'s binders & boxes? Your own binders are put aside and come back if you leave later. Your decks and wishlist stay yours.`))return;
+    try{await api(`/api/sharing/requests/${b.dataset.acc}/accept`,{method:'POST'});location.reload()}catch(e){toast(e.message,'err')}});
+  $$('[data-sdel]',el).forEach(b=>b.onclick=async()=>loadSharing(await api('/api/sharing/invites/'+encodeURIComponent(b.dataset.sdel),{method:'DELETE'})));
+  $$('[data-stop]',el).forEach(b=>b.onclick=async()=>{
+    if(!confirm(b.dataset.self?'Stop using these binders and boxes? You keep your decks and wishlist and start with empty binders of your own.'
+      :`Stop sharing your binders with ${b.dataset.name}? They keep their decks and wishlist and start with empty binders of their own.`))return;
+    try{const r2=await api(`/api/sharing/${b.dataset.stop}/stop`,{method:'POST'});if(r2.left){location.reload();return}loadSharing(r2);if(S.user.is_admin)loadUsers()}
+    catch(e){toast(e.message,'err')}});
+}
 const inviteLink=c=>`${location.origin}/#register?code=${encodeURIComponent(c)}`;
 async function loadInvites(){
   const el=$('#acct-invites'),l=await api('/api/admin/invites'),open=l.filter(x=>!x.used_at),used=l.filter(x=>x.used_at);
   el.innerHTML=`<h3 style="margin:0 0 4px">Invite codes</h3><div class="muted small" style="margin-bottom:10px">Each code signs up one person, once. Send the code or its link.</div>
     <form id="inv-form"><input type="number" name="n" value="1" min="1" max="50" style="width:72px"><button class="btn primary">Create codes</button></form>
-    ${open.length?`<table style="margin-top:10px"><tr><th>Unused code</th><th>Created</th><th></th></tr>${open.map(x=>`<tr><td class="code">${esc(x.code)}</td><td class="muted">${esc(x.created_at.slice(0,10))}</td>
+    ${open.length?`<table style="margin-top:10px"><tr><th>Unused code</th><th>Created</th><th></th></tr>${open.map(x=>`<tr><td class="code">${esc(x.code)}${x.shares?`<br><span class="muted small" style="font-family:inherit;letter-spacing:0;font-weight:400">partner link · ${esc(x.shares)}'s binders</span>`:''}</td><td class="muted">${esc(x.created_at.slice(0,10))}</td>
       <td style="text-align:right;white-space:nowrap"><button class="btn sm" data-copy="${esc(x.code)}">Copy link</button> <button class="btn sm danger" data-del="${esc(x.code)}">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty" style="margin-top:10px">No unused codes.</div>'}
     ${used.length?`<details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Used (${used.length})</summary><table>${used.map(x=>`<tr><td class="code muted">${esc(x.code)}</td><td>${esc(x.used_by||'—')}</td><td class="muted">${esc(x.used_at.slice(0,10))}</td></tr>`).join('')}</table></details>`:''}`;
   $('#inv-form').onsubmit=async e=>{e.preventDefault();
@@ -1777,7 +1821,7 @@ async function loadInvites(){
 async function loadUsers(){
   const l=await api('/api/admin/users');
   $('#acct-users').innerHTML=`<h3 style="margin:0 0 10px">Users (${l.length})</h3><table><tr><th>Username</th><th>Joined</th><th>Cards</th></tr>
-    ${l.map(x=>`<tr><td>${esc(x.username)}${x.is_admin?' <span class="muted small">admin</span>':''}</td><td class="muted">${esc(x.created_at.slice(0,10))}</td><td>${x.cards}</td></tr>`).join('')}</table>`;
+    ${l.map(x=>`<tr><td>${esc(x.username)}${x.is_admin?' <span class="muted small">admin</span>':''}${x.shares?` <span class="muted small">· uses ${esc(x.shares)}'s binders</span>`:''}</td><td class="muted">${esc(x.created_at.slice(0,10))}</td><td>${x.cards}</td></tr>`).join('')}</table>`;
 }
 
 /* ------------------------------------------------------------ boot */

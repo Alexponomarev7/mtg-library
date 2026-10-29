@@ -82,15 +82,21 @@ CREATE TABLE IF NOT EXISTS cm_products(id_product INTEGER PRIMARY KEY, name TEXT
 CREATE INDEX IF NOT EXISTS idx_cm_products_name ON cm_products(name);
 CREATE TABLE IF NOT EXISTS users(
   id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, pw_hash TEXT NOT NULL,
-  is_admin INT DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  is_admin INT DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  library_id INT);  -- whose collection (users/<library_id>.db) this account uses: its own, or one shared with it
 CREATE TABLE IF NOT EXISTS sessions(
   token_hash TEXT PRIMARY KEY, user_id INT NOT NULL, created_at REAL, seen_at REAL);
+CREATE TABLE IF NOT EXISTS share_requests(
+  id INTEGER PRIMARY KEY, from_user INT, library_id INT, to_user INT, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(library_id, to_user));  -- "use my binders": waits for the invited account to accept
 CREATE TABLE IF NOT EXISTS invites(
-  code TEXT PRIMARY KEY, created_by INT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, used_by INT, used_at TEXT);
+  code TEXT PRIMARY KEY, created_by INT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, used_by INT, used_at TEXT,
+  library_id INT);  -- set: the new account shares this collection instead of starting its own
 """
 
-# One user's collection. Card ids point into the shared catalog (no foreign keys across database files).
-USER_SCHEMA = """
+# One user's collection: binders and boxes with their cards. Partners can share one (users.library_id).
+# Card ids point into the shared catalog (no foreign keys across database files).
+COLLECTION_SCHEMA = """
 CREATE TABLE IF NOT EXISTS storages(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('binder','box')),
@@ -110,6 +116,9 @@ CREATE INDEX IF NOT EXISTS idx_items_storage ON items(storage_id);
 CREATE INDEX IF NOT EXISTS idx_items_card ON items(card_id);
 CREATE TABLE IF NOT EXISTS value_history(
   day TEXT PRIMARY KEY, value REAL, cards INT, unique_cards INT, updated_at TEXT);
+"""
+# What stays each account's own when partners share a collection: decks, wishlist, liked cards, settings.
+PERSONAL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS user_meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS decks(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, format TEXT, notes TEXT, source TEXT,
@@ -122,6 +131,8 @@ CREATE INDEX IF NOT EXISTS idx_deck_cards_deck ON deck_cards(deck_id);
 CREATE TABLE IF NOT EXISTS wishlist(
   uuid TEXT PRIMARY KEY, root TEXT, set_code TEXT, name TEXT, added_at TEXT DEFAULT CURRENT_TIMESTAMP);
 """
+USER_SCHEMA = COLLECTION_SCHEMA + PERSONAL_SCHEMA
+COLLECTION_TABLES = ("storages", "storage_sets", "items", "value_history")
 USER_TABLES = ("storages", "storage_sets", "items", "value_history", "decks", "liked", "deck_cards", "wishlist")
 
 
@@ -136,28 +147,33 @@ def user_db_path(uid):
     return os.path.join(USERS_DIR, f"{int(uid)}.db")
 
 
-def connect(uid=None):
-    """The shared database, or - with a user id - that user's collection with the shared one attached as `cat`.
-    Table names are unique across the two, so unqualified names find the right one."""
+def connect(uid=None, library=None):
+    """The shared database, or - with a user id - that user's database with the shared one attached as `cat`.
+    A partner sharing someone's collection (library) has only the personal tables; the owner's database is attached
+    as `coll` for binders and boxes. Table names are unique across the attached files, except that an owner's file
+    also has personal tables - those of the main (own) database win, so unqualified names find the right one."""
     db = sqlite3.connect(user_db_path(uid) if uid else DB_PATH, timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
+    if uid and library and library != uid:
+        db.execute("ATTACH DATABASE ? AS coll", (user_db_path(library),))
     if uid:
         db.execute("ATTACH DATABASE ? AS cat", (DB_PATH,))
     return db
 
 
-def init_user_db(uid):
+def init_user_db(uid, personal_only=False):
     os.makedirs(USERS_DIR, exist_ok=True)
     db = sqlite3.connect(user_db_path(uid), timeout=30)
     db.execute("PRAGMA journal_mode=WAL")
-    db.executescript(USER_SCHEMA)
+    db.executescript(PERSONAL_SCHEMA if personal_only else USER_SCHEMA)
     db.commit()
     db.close()
 
 
 def user_ids(db):
-    return [r[0] for r in db.execute("SELECT id FROM users ORDER BY id")]
+    """Ids of the collections (users/<id>.db) - accounts sharing one count once."""
+    return [r[0] for r in db.execute("SELECT DISTINCT COALESCE(library_id, id) FROM users ORDER BY 1")]
 
 
 def get_umeta(db, key):
@@ -235,10 +251,14 @@ def init_db():
     for col, typ in (("cardmarket_id", "INT"), ("eur", "REAL"), ("eur_foil", "REAL")):
         if col not in cols:
             db.execute(f"ALTER TABLE cards ADD COLUMN {col} {typ}")
+    if "library_id" not in {r[1] for r in db.execute("PRAGMA table_info(users)")}:
+        db.execute("ALTER TABLE users ADD COLUMN library_id INT")
+    if "library_id" not in {r[1] for r in db.execute("PRAGMA table_info(invites)")}:
+        db.execute("ALTER TABLE invites ADD COLUMN library_id INT")
     db.commit()
     migrate_single_user(db)
-    for uid in user_ids(db):
-        init_user_db(uid)  # creates missing tables of databases made by an older version
+    for uid, lib in db.execute("SELECT id, COALESCE(library_id, id) FROM users").fetchall():
+        init_user_db(uid, personal_only=lib != uid)  # creates tables missing from older versions' databases
     db.close()
 
 
@@ -2106,10 +2126,11 @@ def r_public_page_save(db, q, b):
 def r_public_wishlist(db, q, b, username):
     """What a visitor of someone's page sees: only the starred products and liked singles, with photo, price and a
     link - never the collection itself. 404 unless the owner switched the page on."""
-    u = db.execute("SELECT id, username FROM users WHERE username=?", (username,)).fetchone()
+    u = db.execute("SELECT id, username, COALESCE(library_id, id) AS library FROM users WHERE username=?",
+                   (username,)).fetchone()
     if not u:
         raise ApiError(404, "No such page")
-    udb = connect(u["id"])
+    udb = connect(u["id"], u["library"])
     try:
         st = public_settings(udb)
         if not st["enabled"]:
@@ -2650,8 +2671,8 @@ def session_user(cookie_header):
     h = token_hash(c[SESSION_COOKIE].value)
     db = connect()
     try:
-        r = db.execute("SELECT u.id, u.username, u.is_admin, s.seen_at FROM sessions s JOIN users u ON u.id=s.user_id "
-                       "WHERE s.token_hash=?", (h,)).fetchone()
+        r = db.execute("SELECT u.id, u.username, u.is_admin, COALESCE(u.library_id, u.id) AS library, s.seen_at "
+                       "FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?", (h,)).fetchone()
         if not r:
             return None
         if time.time() - r["seen_at"] > SESSION_DAYS * 86400:
@@ -2661,7 +2682,8 @@ def session_user(cookie_header):
         if time.time() - r["seen_at"] > 3600:  # sliding expiry, refreshed at most hourly
             db.execute("UPDATE sessions SET seen_at=? WHERE token_hash=?", (time.time(), h))
             db.commit()
-        return {"id": r["id"], "username": r["username"], "is_admin": bool(r["is_admin"]), "token_hash": h}
+        return {"id": r["id"], "username": r["username"], "is_admin": bool(r["is_admin"]), "library": r["library"],
+                "token_hash": h}
     finally:
         db.close()
 
@@ -2680,7 +2702,23 @@ def throttle_login(ip, failed=False):
 
 def me():
     u = getattr(_req, "user", None)
-    return {"user": u and {k: u[k] for k in ("id", "username", "is_admin")}}
+    if not u:
+        return {"user": None}
+    out = {k: u[k] for k in ("id", "username", "is_admin")}
+    db = connect()
+    try:
+        out["share_requests"] = db.execute("SELECT COUNT(*) FROM share_requests WHERE to_user=?", (u["id"],)).fetchone()[0]
+    finally:
+        db.close()
+    if u.get("library"):  # the other accounts on the same collection
+        db = connect()
+        try:
+            out["shared_with"] = [r[0] for r in db.execute(
+                "SELECT username FROM users WHERE COALESCE(library_id, id)=? AND id<>? ORDER BY id",
+                (u["library"], u["id"]))]
+        finally:
+            db.close()
+    return {"user": out}
 
 
 @route("GET", "/api/me", "public")
@@ -2698,7 +2736,8 @@ def r_login(db, q, b):
         time.sleep(0.4)
         raise ApiError(401, "Wrong username or password")
     start_session(db, r["id"])
-    _req.user = {"id": r["id"], "username": r["username"], "is_admin": bool(r["is_admin"])}
+    _req.user = {"id": r["id"], "username": r["username"], "is_admin": bool(r["is_admin"]),
+                 "library": db.execute("SELECT COALESCE(library_id, id) FROM users WHERE id=?", (r["id"],)).fetchone()[0]}
     return me()
 
 
@@ -2718,11 +2757,13 @@ def r_register(db, q, b):
         raise ApiError(400, "This invite code is not valid or was already used")
     if db.execute("SELECT 1 FROM users WHERE username=?", (name,)).fetchone():
         raise ApiError(400, "This username is taken")
+    shared = db.execute("SELECT library_id FROM invites WHERE code=?", (code,)).fetchone()[0]
     uid = db.execute("INSERT INTO users(username, pw_hash) VALUES(?,?)", (name, hash_password(pw))).lastrowid
+    db.execute("UPDATE users SET library_id=? WHERE id=?", (shared or uid, uid))
     db.execute("UPDATE invites SET used_by=? WHERE code=?", (uid, code))
-    init_user_db(uid)
+    init_user_db(uid, personal_only=bool(shared))
     start_session(db, uid)
-    _req.user = {"id": uid, "username": name, "is_admin": False}
+    _req.user = {"id": uid, "username": name, "is_admin": False, "library": shared or uid}
     return me()
 
 
@@ -2747,11 +2788,138 @@ def r_password(db, q, b):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------- partners sharing binders & boxes
+
+def sharing_view(db):
+    u = _req.user
+    owner = db.execute("SELECT username FROM users WHERE id=?", (u["library"],)).fetchone()
+    return {"owner": owner and owner[0], "is_owner": u["library"] == u["id"],
+            "partners": [dict(r) for r in db.execute(
+                "SELECT id, username FROM users WHERE COALESCE(library_id, id)=? AND id<>? ORDER BY id",
+                (u["library"], u["id"]))],
+            "invites": [dict(r) for r in db.execute(
+                "SELECT code, created_at FROM invites WHERE library_id=? AND used_at IS NULL ORDER BY created_at",
+                (u["library"],))],
+            "sent": [dict(r) for r in db.execute(
+                "SELECT r.id, t.username FROM share_requests r JOIN users t ON t.id=r.to_user WHERE r.library_id=? "
+                "ORDER BY r.id", (u["library"],))],
+            "incoming": [dict(r) for r in db.execute(
+                "SELECT r.id, f.username, o.username AS owner FROM share_requests r JOIN users f ON f.id=r.from_user "
+                "JOIN users o ON o.id=r.library_id WHERE r.to_user=? ORDER BY r.id", (u["id"],))]}
+
+
+@route("GET", "/api/sharing")
+def r_sharing(db, q, b):
+    return sharing_view(db)
+
+
+@route("POST", "/api/sharing/invite")
+def r_sharing_invite(db, q, b):
+    """A one-time sign-up code for a partner: their account uses these binders and boxes (anyone sharing them can
+    make one), with decks and wishlist of its own."""
+    if db.execute("SELECT COUNT(*) FROM invites WHERE library_id=? AND used_at IS NULL",
+                  (_req.user["library"],)).fetchone()[0] >= 5:
+        raise ApiError(400, "Use or delete the partner links you have first")
+    db.execute("INSERT INTO invites(code, created_by, library_id) VALUES(?,?,?)",
+               (new_invite_code(), _req.user["id"], _req.user["library"]))
+    return sharing_view(db)
+
+
+def set_aside_binders(db):
+    """Joining someone's binders: this account's own binders and boxes (in the request's main database) are renamed
+    out of the way - they would hide the shared ones - and come back if it leaves."""
+    have = {r[0] for r in db.execute("SELECT name FROM main.sqlite_master WHERE type='table'")}
+    for t in COLLECTION_TABLES:
+        if t in have:
+            db.execute(f"DROP TABLE IF EXISTS main.own_{t}")
+            db.execute(f"ALTER TABLE main.{t} RENAME TO own_{t}")
+    _req.skip_stamp = True  # no items table here any more
+
+
+def restore_own_binders(uid):
+    u = sqlite3.connect(user_db_path(uid), timeout=30)
+    try:
+        have = {r[0] for r in u.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        for t in COLLECTION_TABLES:
+            if f"own_{t}" in have and t not in have:
+                u.execute(f"ALTER TABLE own_{t} RENAME TO {t}")
+        u.commit()
+    finally:
+        u.close()
+    init_user_db(uid)  # empty binders for whatever wasn't set aside
+
+
+@route("POST", "/api/sharing/request")
+def r_sharing_request(db, q, b):
+    """Invite an existing account, by its exact username, to use these binders."""
+    u = _req.user
+    t = db.execute("SELECT id, username, COALESCE(library_id, id) AS library FROM users WHERE username=?",
+                   (str(b.get("username") or "").strip(),)).fetchone()
+    if not t:
+        raise ApiError(404, "No account with this username")
+    if t["id"] == u["id"]:
+        raise ApiError(400, "That's you")
+    if t["library"] == u["library"]:
+        raise ApiError(400, f"{t['username']} already uses these binders")
+    db.execute("INSERT OR IGNORE INTO share_requests(from_user, library_id, to_user) VALUES(?,?,?)",
+               (u["id"], u["library"], t["id"]))
+    return sharing_view(db)
+
+
+@route("DELETE", r"/api/sharing/requests/(\d+)")
+def r_sharing_request_delete(db, q, b, rid):
+    """Withdraw a sent request, or decline one sent to me."""
+    db.execute("DELETE FROM share_requests WHERE id=? AND (library_id=? OR to_user=?)",
+               (int(rid), _req.user["library"], _req.user["id"]))
+    return sharing_view(db)
+
+
+@route("POST", r"/api/sharing/requests/(\d+)/accept")
+def r_sharing_accept(db, q, b, rid):
+    u = _req.user
+    r = db.execute("SELECT library_id FROM share_requests WHERE id=? AND to_user=?", (int(rid), u["id"])).fetchone()
+    if not r:
+        raise ApiError(404, "This invitation is gone")
+    if u["library"] == u["id"] and db.execute(
+            "SELECT 1 FROM users WHERE library_id=? AND id<>?", (u["id"], u["id"])).fetchone():
+        raise ApiError(400, "Others use your binders - stop sharing them first")
+    if u["library"] != u["id"]:
+        raise ApiError(400, "You already use someone's binders - leave them first")
+    set_aside_binders(db)
+    db.execute("UPDATE users SET library_id=? WHERE id=?", (r[0], u["id"]))
+    db.execute("DELETE FROM share_requests WHERE to_user=?", (u["id"],))
+    return {"joined": True}
+
+
+@route("DELETE", r"/api/sharing/invites/([A-Z0-9-]+)")
+def r_sharing_invite_delete(db, q, b, code):
+    db.execute("DELETE FROM invites WHERE code=? AND library_id=? AND used_at IS NULL", (code, _req.user["library"]))
+    return sharing_view(db)
+
+
+@route("POST", r"/api/sharing/(\d+)/stop")
+def r_sharing_stop(db, q, b, uid):
+    """The owner of the binders removes a partner, or a partner leaves. The partner keeps decks and wishlist and gets
+    back the binders they had before joining (or empty ones)."""
+    u, uid = _req.user, int(uid)
+    r = db.execute("SELECT COALESCE(library_id, id) FROM users WHERE id=?", (uid,)).fetchone()
+    if not r or r[0] != u["library"] or r[0] == uid:
+        raise ApiError(400, "This account doesn't share your binders")
+    if uid != u["id"] and u["library"] != u["id"]:
+        raise ApiError(403, "Only the owner of the binders can remove someone else")
+    db.execute("UPDATE users SET library_id=? WHERE id=?", (uid, uid))
+    restore_own_binders(uid)  # their own binders from before, if any
+    if uid == u["id"]:
+        return {"left": True}
+    return sharing_view(db)
+
+
 @route("GET", "/api/admin/invites", "admin")
 def r_invites(db, q, b):
     return [dict(r) for r in db.execute(
-        "SELECT i.code, i.created_at, i.used_at, u.username AS used_by FROM invites i "
-        "LEFT JOIN users u ON u.id=i.used_by ORDER BY i.used_at IS NOT NULL, i.created_at DESC")]
+        "SELECT i.code, i.created_at, i.used_at, u.username AS used_by, o.username AS shares FROM invites i "
+        "LEFT JOIN users u ON u.id=i.used_by LEFT JOIN users o ON o.id=i.library_id "
+        "ORDER BY i.used_at IS NOT NULL, i.created_at DESC")]
 
 
 @route("POST", "/api/admin/invites", "admin")
@@ -2770,13 +2938,17 @@ def r_invite_delete(db, q, b, code):
 @route("GET", "/api/admin/users", "admin")
 def r_users(db, q, b):
     out = []
-    for r in db.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id").fetchall():
-        u = connect(r["id"])
+    rows = db.execute("SELECT id, username, is_admin, created_at, COALESCE(library_id, id) AS library FROM users "
+                      "ORDER BY id").fetchall()
+    owner = {r["id"]: r["username"] for r in rows}
+    for r in rows:
+        u = connect(r["library"])
         try:
             cards = u.execute("SELECT COALESCE(SUM(qty),0) FROM items").fetchone()[0]
         finally:
             u.close()
-        out.append({**dict(r), "is_admin": bool(r["is_admin"]), "cards": cards})
+        out.append({**dict(r), "is_admin": bool(r["is_admin"]), "cards": cards,
+                    "shares": owner.get(r["library"]) if r["library"] != r["id"] else None})
     return out
 
 
@@ -2801,7 +2973,8 @@ def copy_db(src_path, dst_path):
 def r_backup(db, q, b):
     buf = io.BytesIO()
     with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        files = [("library.db", DB_PATH)] + [(f"users/{u}.db", user_db_path(u)) for u in user_ids(db)]
+        files = [("library.db", DB_PATH)] + [(f"users/{u}.db", user_db_path(u))
+                                             for u, in db.execute("SELECT id FROM users ORDER BY id")]
         for arc, path in files:
             if os.path.exists(path):
                 out = os.path.join(tmp, "copy.db")
@@ -2854,9 +3027,10 @@ def r_restore(db, q, b):
             if m and (int(m[1]) not in ids or f"users/{m[1]}.db" not in files):
                 u = sqlite3.connect(os.path.join(USERS_DIR, fn), timeout=30)
                 u.execute("PRAGMA foreign_keys=OFF")
-                u.executescript(USER_SCHEMA)
+                have = {r[0] for r in u.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 for t in USER_TABLES + ("user_meta",):
-                    u.execute(f"DELETE FROM {t}")
+                    if t in have:  # never add tables: a partner's file must not get its own binders
+                        u.execute(f"DELETE FROM {t}")
                 u.commit()
                 u.close()
     init_db()  # schema upgrades if the backup came from an older version
@@ -2949,7 +3123,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, {"error": "Admins only"})
             # behind a hosting proxy the client's address and https come in forwarded headers
             fwd = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-            _req.user, _req.cookie, _req.ip = user, None, fwd or self.client_address[0]
+            _req.user, _req.cookie, _req.ip, _req.skip_stamp = user, None, fwd or self.client_address[0], False
             _req.https = self.headers.get("X-Forwarded-Proto") == "https"
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             body = {}
@@ -2963,10 +3137,10 @@ class Handler(BaseHTTPRequestHandler):
                     body = json.loads(self.rfile.read(n) or b"{}")
                 except ValueError:
                     return self._send(400, {"error": "Bad JSON"})
-            db = connect(None if access == "public" else user["id"])
+            db = connect(*((None,) if access == "public" else (user["id"], user["library"])))
             try:
                 res = fn(db, q, body, *mm.groups())
-                if method != "GET" and access != "public":
+                if method != "GET" and access != "public" and not getattr(_req, "skip_stamp", False):
                     stamp_new_items(db)
                 db.commit()
             except ApiError as e:
