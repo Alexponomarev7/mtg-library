@@ -233,6 +233,20 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .info .tip .w{color:var(--muted);font-size:12px}
 .prow-head>span{display:flex;align-items:center;gap:5px}
 .prow-head>span:not(:first-child){justify-content:flex-end}
+.shelf{grid-column:1/-1;border:1.5px dashed var(--line);border-radius:var(--radius);padding:10px 12px 12px;background:var(--panel2);transition:border-color .15s,background .15s}
+.shelf-h{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+.shelf-empty{padding:14px 4px}
+.drag-on .shelf,.drag-on .shelf-card{border-color:var(--muted)}
+.shelf.over,.st-card.over{border-color:var(--accent);background:var(--accent-soft)}
+.shelf-h .tag{font-size:11px}
+.st-card .tag{white-space:nowrap}
+.one-line{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linkbtn{border:0;background:none;padding:0;color:var(--accent);font-weight:600;font-size:12.5px}
+.linkbtn:hover{text-decoration:underline}
+.add-shelf{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:4px;border:1.5px dashed var(--line);border-left:1.5px dashed var(--line);background:none;min-height:120px;font:inherit;color:inherit}
+.add-shelf:hover{border-color:var(--accent)}
+.st-card.dragging{opacity:.4}
+.st-card[draggable=true]{cursor:grab}
 .grid-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;margin:10px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650}
 .grid-divider::after{content:"";flex:1;height:1px;background:var(--line);order:1}
 .grid-divider span:last-child{order:2;text-transform:none;letter-spacing:0;font-weight:500}
@@ -253,6 +267,14 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .pub textarea{width:100%;min-height:64px;resize:vertical}
 .pub .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .pub .link{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 9px;overflow-wrap:anywhere}
+.logb{padding:12px 16px;margin-bottom:10px}
+.logb .lh{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
+.logb .lh b{font-size:14.5px}
+.loge{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:13.5px;border-top:1px solid var(--line)}
+.loge:first-of-type{border-top:0}
+.loge .ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:12px;font-weight:700;flex:none;background:var(--panel2);color:var(--muted)}
+.loge .ic.add{background:var(--accent-soft);color:var(--accent)}.loge .ic.remove{background:var(--warn-soft);color:var(--warn)}
+.logday{font-weight:700;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin:18px 0 8px}
 #owntip{position:fixed;z-index:50;pointer-events:none;max-width:300px;padding:8px 10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,.3);font-size:12.5px;line-height:1.4}
 #owntip div+div{margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
 .ccard .own[data-own]{cursor:help}
@@ -460,6 +482,8 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 
   <section id="view-honor" class="view" hidden><div id="honor"></div></section>
 
+  <section id="view-log" class="view" hidden><div id="log"></div></section>
+
   <section id="view-account" class="view" hidden><div id="account" class="acct"></div></section>
 
   <section id="view-discounts" class="view" hidden>
@@ -533,7 +557,7 @@ const dot=c=>`<span class="dot" style="background:${esc(c||'var(--accent)')}"></
 /* ------------------------------------------------------------ tabs & stats */
 // The address keeps where you are (tab, binder page, set, deck), so reloading the page stays there.
 function setHash(h){h='#'+h;if(location.hash!==h)history.replaceState(null,'',h)}
-const GROUPS={library:[['storage','Binders & boxes'],['collections','Collections'],['decks','Decks']],
+const GROUPS={library:[['storage','Binders & boxes'],['collections','Collections'],['decks','Decks'],['log','Log']],
   shop:[['market','Market'],['wishlist','Wishlist'],['discounts','Discounts']]};
 const groupOf=t=>Object.keys(GROUPS).find(g=>GROUPS[g].some(([k])=>k===t));
 S.groupLast={};
@@ -554,6 +578,7 @@ function setTab(t){
   if(t==='honor')loadHonor()
   if(t==='discounts')loadDiscounts()
   if(t==='account')loadAccount()
+  if(t==='log')loadLog()
 }
 function openTab(t){  // clicking the tab you're on goes back to its list
   if(t==='storage'&&S.tab==='storage'){S.cur=null}if(t==='collections'&&S.tab==='collections'){S.coll=null}if(t==='decks'&&S.tab==='decks'){S.deck=null}
@@ -709,7 +734,7 @@ async function loadStorages(){
   if(!S.storages.length){el.innerHTML='<div class="empty" style="grid-column:1/-1">No binders or boxes yet. Create your first one above.</div>';return}
   const card=s=>{
     const cap=s.capacity_total,pct=cap?Math.min(100,Math.round(100*s.count/cap)):0;
-    return `<div class="panel st-card" style="--c:${esc(s.color||'')}" data-open="${s.id}">
+    return `<div class="panel st-card" style="--c:${esc(s.color||'')}" data-open="${s.id}" ${s.deck?`draggable="true" data-box="${s.id}"`:''}>
       <div style="display:flex;justify-content:space-between"><span class="st-name">${esc(s.name)}</span><span class="tag">${s.deck?'deck box':s.kind}</span></div>
       <div class="muted small">${s.kind==='binder'?`${s.page_count} pages · ${s.rows}×${s.cols} pockets · ${s.mode==='set_order'?'set order':'fill in order'}`:(s.capacity?`holds ${s.capacity}`:'no size limit')}</div>
       <div class="chips">${s.deck?'<span class="muted small">holds its deck only</span>':s.sets.length?s.sets.map(x=>`<span class="chip" title="${esc(x.name||'')}">${esc(x.set_code)}</span>`).join(''):'<span class="muted small">any set (general)</span>'}</div>
@@ -717,8 +742,45 @@ async function loadStorages(){
       ${s.space&&s.mode==='set_order'?`<div class="muted small" style="margin-top:6px">${s.space.reserved} reserved by sets · ${s.space.free} pockets unreserved</div>`:''}
     </div>`};
   const regular=S.storages.filter(s=>!s.deck),decks=S.storages.filter(s=>s.deck);
-  el.innerHTML=regular.map(card).join('')+(decks.length?`<div class="grid-divider"><span>Deck boxes</span><span class="muted small">${decks.length} · ${eur(decks.reduce((a,s)=>a+s.value,0))}</span></div>`+decks.map(card).join(''):'');
+  S.shelves=await api('/api/shelves').catch(()=>[]);S.shelfOpen=S.shelfOpen||new Set();
+  const val=l=>eur(l.reduce((a,s)=>a+s.value,0)),inShelf=id=>decks.filter(s=>s.shelf_id===id);
+  // a deck storage looks like a deck box (same card, its own tag); expanded, it spreads out to show its boxes
+  const shelfCard=sh=>{const l=inShelf(sh.id),n=l.reduce((a,s)=>a+s.count,0);
+    return `<div class="panel st-card shelf-card" style="--c:#8a6d3b" data-shelf="${sh.id}" data-drop="${sh.id}">
+      <div style="display:flex;justify-content:space-between;gap:8px"><span class="st-name one-line">${esc(sh.name)}</span><span class="tag">deck storage</span></div>
+      <div class="muted small" style="display:flex;justify-content:space-between">${l.length} deck box${l.length===1?'':'es'}<button class="linkbtn" data-expand="${sh.id}">Expand ▾</button></div>
+      <div class="chips"><span class="muted small one-line" title="${esc(l.map(s=>s.name).join(', '))}">${l.length?esc(l.map(s=>s.name).join(' · ')):'drag deck boxes here'}</span></div>
+      <div class="small" style="display:flex;justify-content:space-between"><span><b>${n}</b> cards</span><span class="money">${val(l)}</span></div></div>`};
+  const shelfOpen=sh=>{const l=inShelf(sh.id);
+    return `<div class="shelf" data-drop="${sh.id}"><div class="shelf-h"><b>${esc(sh.name)}</b><span class="tag">deck storage</span><span class="muted small">${l.length} deck box${l.length===1?'':'es'} · ${val(l)}</span>
+        <span style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap"><button class="btn sm" data-shren="${sh.id}">Rename</button><button class="btn sm danger" data-shdel="${sh.id}">Delete</button><button class="btn sm" data-expand="${sh.id}">Collapse ▴</button></span></div>
+      <div class="st-grid">${l.map(card).join('')||'<div class="muted small shelf-empty">Drag deck boxes here</div>'}</div>
+      ${l.length?'<div class="muted small" style="margin-top:8px">To take a box out, drag it onto a deck box outside.</div>':''}</div>`};
+  const loose=decks.filter(s=>!S.shelves.some(sh=>sh.id===s.shelf_id));
+  el.innerHTML=regular.map(card).join('')+`<div class="grid-divider" data-drop="none"><span>Deck boxes</span><span class="muted small">${decks.length} · ${val(decks)}</span></div>
+    ${S.shelves.map(sh=>S.shelfOpen.has(sh.id)?shelfOpen(sh):shelfCard(sh)).join('')}
+    ${loose.map(s=>card(s).replace('data-open=',`data-drop="none" data-open=`)).join('')}
+    <button class="panel st-card add-shelf" id="shelf-new" data-drop="none"><span class="st-name">+ Deck storage</span><span class="muted small">a shelf, drawer or case for deck boxes</span></button>`;
+  $('#shelf-new').onclick=async e=>{e.stopPropagation();const n=prompt('Name of the deck storage (e.g. "Shelf by the desk")');if(!n)return;
+    try{await api('/api/shelves',{method:'POST',body:{name:n}});loadStorages()}catch(err){toast(err.message,'err')}};
+  $$('[data-expand]',el).forEach(b=>b.onclick=e=>{e.stopPropagation();const id=+b.dataset.expand;S.shelfOpen.has(id)?S.shelfOpen.delete(id):S.shelfOpen.add(id);loadStorages()});
+  $$('[data-shelf]',el).forEach(c=>c.onclick=()=>{S.shelfOpen.add(+c.dataset.shelf);loadStorages()});
+  $$('[data-shren]',el).forEach(b=>b.onclick=async e=>{e.stopPropagation();const sh=S.shelves.find(x=>x.id===+b.dataset.shren),n=prompt('New name',sh.name);if(!n)return;
+    try{await api('/api/shelves/'+sh.id,{method:'PUT',body:{name:n}});loadStorages()}catch(err){toast(err.message,'err')}});
+  $$('[data-shdel]',el).forEach(b=>b.onclick=async e=>{e.stopPropagation();const sh=S.shelves.find(x=>x.id===+b.dataset.shdel);
+    if(!confirm(`Delete the deck storage "${sh.name}"? Its deck boxes and their cards stay.`))return;S.shelfOpen.delete(sh.id);await api('/api/shelves/'+sh.id,{method:'DELETE'});loadStorages()});
 }
+// Drag a deck box onto a deck storage (or "Not in a deck storage") to move it there.
+async function shelveBox(box,shelf){
+  try{await api(`/api/storages/${box}/shelf`,{method:'PUT',body:{shelf_id:shelf==='none'?null:+shelf}});loadStorages()}catch(e){toast(e.message,'err')}
+}
+$('#storage-list').addEventListener('dragstart',e=>{const c=e.target.closest('[data-box]');if(!c)return;
+  e.dataTransfer.setData('text/x-box',c.dataset.box);e.dataTransfer.effectAllowed='move';c.classList.add('dragging');$('#storage-list').classList.add('drag-on')});
+$('#storage-list').addEventListener('dragend',e=>{e.target.closest?.('[data-box]')?.classList.remove('dragging');$('#storage-list').classList.remove('drag-on');$$('.over').forEach(x=>x.classList.remove('over'))});
+$('#storage-list').addEventListener('dragover',e=>{const z=e.target.closest('[data-drop]');if(!z||!e.dataTransfer.types.includes('text/x-box'))return;
+  e.preventDefault();$$('.over').forEach(x=>x!==z&&x.classList.remove('over'));z.classList.add('over')});
+$('#storage-list').addEventListener('drop',e=>{const z=e.target.closest('[data-drop]'),box=e.dataTransfer.getData('text/x-box');if(!z||!box)return;
+  e.preventDefault();shelveBox(box,z.dataset.drop)});
 $('#storage-list').addEventListener('click',e=>{const c=e.target.closest('[data-open]');if(c)openStorage(+c.dataset.open,1)});
 $$('[data-new]').forEach(b=>b.onclick=()=>storageForm(b.dataset.new));
 $('#refresh-prices').onclick=async()=>{toast('Downloading Cardmarket prices…');
@@ -769,6 +831,7 @@ function storageForm(kind,st){
 
 /* ------------------------------------------------------------ storage detail */
 async function openStorage(id,page=1){
+  if(!S.shelves)S.shelves=await api('/api/shelves').catch(()=>[]);
   let st;
   try{st=await api('/api/storages/'+id)}catch(e){toast(e.message,'err');return loadStorages()}
   S.cur=st;S.page=page;setHash(`storage/${st.id}/${page}`);
@@ -782,7 +845,8 @@ async function openStorage(id,page=1){
       <button class="btn" id="back">← All</button>
       <div style="flex:1;min-width:200px"><h2 style="display:flex;gap:8px;align-items:center">${dot(st.color)}${esc(st.name)}</h2>
         <div class="muted small">${st.kind==='binder'?`${st.page_count} pages (${st.sheets} sheets${st.double_sided?', both sides':''}) · ${st.rows}×${st.cols} pockets · ${st.mode==='set_order'?'set order':'fill in order'} · `:''}${st.count}${cap?` / ${cap}`:''} cards · <b class="money" style="color:var(--ink)">${eur(st.value)}</b>${st.notes?' · '+esc(st.notes):''}</div></div>
-      ${st.deck?`<button class="btn primary" id="open-deck">Open deck</button>`:''}<button class="btn" id="edit">Edit</button><button class="btn danger" id="del">Delete</button>
+      ${st.deck?.id?`<button class="btn primary" id="open-deck">Open deck</button>`:st.deck?`<span class="muted small">${esc(st.deck.owner)}'s deck</span>`:''}
+      ${st.deck&&S.shelves?.length?`<select id="st-shelf" title="Deck storage"><option value="none">Not in a deck storage</option>${S.shelves.map(x=>`<option value="${x.id}" ${x.id===st.shelf_id?'selected':''}>In ${esc(x.name)}</option>`).join('')}</select>`:''}<button class="btn" id="edit">Edit</button><button class="btn danger" id="del">Delete</button>
     </div>
     <div class="detail-grid">
       <div class="panel sets-panel">
@@ -804,7 +868,8 @@ async function openStorage(id,page=1){
       <div id="st-content"></div>
     </div>`;
   $('#back').onclick=loadStorages;
-  if(st.deck)$('#open-deck').onclick=()=>{S.deck=st.deck.id;setTab('decks')};
+  if($('#st-shelf'))$('#st-shelf').onchange=async e=>{try{await api(`/api/storages/${st.id}/shelf`,{method:'PUT',body:{shelf_id:e.target.value==='none'?null:+e.target.value}});toast('Moved');refreshStorages()}catch(err){toast(err.message,'err')}};
+  if(st.deck?.id)$('#open-deck').onclick=()=>{S.deck=st.deck.id;setTab('decks')};
   $('#edit').onclick=()=>storageForm(st.kind,st);
   $('#del').onclick=async()=>{if(!confirm(`Delete ${st.name}?`))return;try{await api('/api/storages/'+st.id,{method:'DELETE'});toast('Deleted');loadStats();loadStorages()}catch(e){toast(e.message,'err')}};
   const setCall=async(p)=>{try{const r=await p;showMoves(r.moves);openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
@@ -1501,6 +1566,54 @@ async function toggleStar(p,root,el){
   }catch(e){toast(e.message,'err')}
 }
 $('#wl-rp').onchange=e=>{S.reprints=e.target.checked;S.market=null;loadWishlist()};
+/* ------------------------------------------------------------ log */
+// Everything that changed in the binders and boxes, newest first, one block per action (and who did it).
+const utc=s=>new Date(s.replace(' ','T')+'Z');
+function logLine(e){
+  const card=`<b ${e.image?`data-img="${esc(e.image)}"`:''}>${esc(e.name)}</b> <span class="muted small">${esc((e.set||'').toUpperCase())} #${esc(e.num||'')}${e.foil?' · foil':''}</span>`;
+  const n=e.qty>1?`${e.qty} × `:'';
+  const [ic,cls,txt]={
+    add:['+','add',`${n}${card} → ${esc(e.to)}`],
+    remove:['−','remove',`${n}${card} from ${esc(e.from)}`],
+    move:['⇄','',`${n}${card}: ${esc(e.from)} → ${esc(e.to)}`],
+    change:['✎','',`${n}${card} in ${esc(e.to)} <span class="muted small">(was ${esc((e.old_set||'').toUpperCase())} #${esc(e.old_num||'')}${e.old_foil?' foil':''})</span>`],
+    place_new:['＋','add',`New place <b>${esc(e.to)}</b>`],
+    place_del:['×','remove',`Deleted <b>${esc(e.from)}</b>`],
+    place_rename:['✎','',`Renamed <b>${esc(e.from)}</b> → <b>${esc(e.to)}</b>`],
+    set_add:['▤','add',`Set ${esc((e.set||'').toUpperCase())} added to <b>${esc(e.to)}</b>`],
+    set_del:['▤','remove',`Set ${esc((e.set||'').toUpperCase())} removed from <b>${esc(e.from)}</b>`],
+    shelf_new:['＋','add',`New deck storage <b>${esc(e.to)}</b>`],
+    shelf_del:['×','remove',`Deleted deck storage <b>${esc(e.from)}</b>`],
+    shelve:['⇄','',`Deck box <b>${esc(e.box)}</b> → ${esc(e.to)}`],
+    unshelve:['⇄','',`Deck box <b>${esc(e.box)}</b> taken out of ${esc(e.from)}`]}[e.kind]||['·','',esc(e.kind)];
+  return `<div class="loge"><span class="ic ${cls}">${ic}</span><span>${txt}</span></div>`;
+}
+function logSummary(evs){
+  const sum=k=>evs.filter(e=>e.kind===k).reduce((a,e)=>a+(e.qty||1),0),parts=[];
+  if(sum('add'))parts.push(`added ${sum('add')}`);if(sum('remove'))parts.push(`removed ${sum('remove')}`);
+  if(sum('move'))parts.push(`moved ${sum('move')}`);if(sum('change'))parts.push(`changed ${sum('change')}`);
+  return parts.length?parts.join(' · ')+' card'+(evs.length===1&&evs[0].qty===1?'':'s'):'';
+}
+async function loadLog(more){
+  const el=$('#log');
+  if(!more){el.innerHTML='<div class="empty">Loading…</div>';S.logDay=null}
+  let r;try{r=await api('/api/log'+(more?`?before=${more}`:''))}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  $('#log-more')?.remove();if(!more)el.innerHTML='';
+  if(!r.batches.length&&!more){el.innerHTML='<div class="empty">Nothing has changed yet.</div>';return}
+  let h='';
+  for(const b of r.batches){
+    const d=utc(b.at),day=d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'long',year:'numeric'});
+    if(day!==S.logDay){S.logDay=day;h+=`<div class="logday">${esc(day)}</div>`}
+    const shown=b.events.slice(0,8),rest=b.events.slice(8);
+    h+=`<div class="panel logb"><div class="lh"><b>${esc(b.user||'Before the log')}</b><span class="muted small">${b.user?d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}):'cards already in the collection'}</span>
+        <span class="muted small" style="margin-left:auto">${esc(logSummary(b.events))}</span></div>
+      ${shown.map(logLine).join('')}${rest.length?`<details><summary class="small muted" style="cursor:pointer;padding:4px 0">${rest.length} more</summary>${rest.map(logLine).join('')}</details>`:''}</div>`;
+  }
+  if(r.more)h+=`<button class="btn" id="log-more">Older</button>`;
+  el.insertAdjacentHTML('beforeend',h);
+  if(r.more)$('#log-more').onclick=()=>loadLog(r.batches[r.batches.length-1].batch);
+}
+
 // The public page: a landing at /u/<username> showing only the starred products, for people choosing a gift.
 async function loadPubPage(){
   const el=$('#pubpage');let p;try{p=await api('/api/public-page')}catch(e){return}
@@ -1836,7 +1949,7 @@ function route(){
   if(t==='storage'&&!a)S.cur=null;
   if(t==='collections'&&!a)S.coll=null;
   if(t==='decks'&&!a){S.deck=null;S.deckView='mine'}
-  setTab(['find','add','storage','collections','decks','market','wishlist','honor','discounts','account'].includes(t)?t:'find');
+  setTab(['find','add','storage','collections','decks','market','wishlist','honor','discounts','account','log'].includes(t)?t:'find');
 }
 window.addEventListener('hashchange',()=>{if(S.user)route();else showAuth()});  // a pasted link or Back; our own updates use replaceState
 api('/api/me').then(r=>r.user?startApp(r.user):showAuth()).catch(()=>showAuth());

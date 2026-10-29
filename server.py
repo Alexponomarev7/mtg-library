@@ -102,7 +102,11 @@ CREATE TABLE IF NOT EXISTS storages(
   kind TEXT NOT NULL CHECK(kind IN ('binder','box')),
   sheets INT, rows INT, cols INT, double_sided INT DEFAULT 1,
   mode TEXT DEFAULT 'set_order', capacity INT, color TEXT, notes TEXT,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  deck_of TEXT,  -- a deck box: whose deck it holds (decks are personal, so partners see it from here)
+  shelf_id INT);  -- the deck storage a deck box stands in
+CREATE TABLE IF NOT EXISTS deck_shelves(
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS storage_sets(
   storage_id INT REFERENCES storages(id) ON DELETE CASCADE, set_code TEXT,
   position INT, new_page INT DEFAULT 1, include_extras INT DEFAULT 0, one_per_card INT DEFAULT 0,
@@ -116,6 +120,10 @@ CREATE INDEX IF NOT EXISTS idx_items_storage ON items(storage_id);
 CREATE INDEX IF NOT EXISTS idx_items_card ON items(card_id);
 CREATE TABLE IF NOT EXISTS value_history(
   day TEXT PRIMARY KEY, value REAL, cards INT, unique_cards INT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS events(
+  id INTEGER PRIMARY KEY, batch INT, at TEXT DEFAULT CURRENT_TIMESTAMP, user TEXT, kind TEXT,
+  card_id TEXT, foil INT, qty INT, data TEXT);  -- the Log: what changed in the binders and boxes, by whom
+CREATE INDEX IF NOT EXISTS idx_events_batch ON events(batch);
 """
 # What stays each account's own when partners share a collection: decks, wishlist, liked cards, settings.
 PERSONAL_SCHEMA = """
@@ -132,7 +140,7 @@ CREATE TABLE IF NOT EXISTS wishlist(
   uuid TEXT PRIMARY KEY, root TEXT, set_code TEXT, name TEXT, added_at TEXT DEFAULT CURRENT_TIMESTAMP);
 """
 USER_SCHEMA = COLLECTION_SCHEMA + PERSONAL_SCHEMA
-COLLECTION_TABLES = ("storages", "storage_sets", "items", "value_history")
+COLLECTION_TABLES = ("storages", "storage_sets", "items", "value_history", "events", "deck_shelves")
 USER_TABLES = ("storages", "storage_sets", "items", "value_history", "decks", "liked", "deck_cards", "wishlist")
 
 
@@ -167,6 +175,10 @@ def init_user_db(uid, personal_only=False):
     db = sqlite3.connect(user_db_path(uid), timeout=30)
     db.execute("PRAGMA journal_mode=WAL")
     db.executescript(PERSONAL_SCHEMA if personal_only else USER_SCHEMA)
+    scols = set() if personal_only else {r[1] for r in db.execute("PRAGMA table_info(storages)")}
+    for col, typ in (("deck_of", "TEXT"), ("shelf_id", "INT")):
+        if scols and col not in scols:
+            db.execute(f"ALTER TABLE storages ADD COLUMN {col} {typ}")
     db.commit()
     db.close()
 
@@ -257,8 +269,24 @@ def init_db():
         db.execute("ALTER TABLE invites ADD COLUMN library_id INT")
     db.commit()
     migrate_single_user(db)
-    for uid, lib in db.execute("SELECT id, COALESCE(library_id, id) FROM users").fetchall():
+    users = db.execute("SELECT id, COALESCE(library_id, id), username FROM users").fetchall()
+    for uid, lib, _name in users:
         init_user_db(uid, personal_only=lib != uid)  # creates tables missing from older versions' databases
+        if lib == uid:
+            u = connect(uid)
+            try:
+                seed_log(u)
+                u.commit()
+            finally:
+                u.close()
+    for uid, lib, name in users:  # deck boxes made before deck_of existed
+        u = connect(uid, lib)
+        try:
+            u.execute("UPDATE storages SET deck_of=? WHERE deck_of IS NULL AND id IN "
+                      "(SELECT storage_id FROM main.decks WHERE storage_id IS NOT NULL)", (name,))
+            u.commit()
+        finally:
+            u.close()
     db.close()
 
 
@@ -745,7 +773,8 @@ def storage_summary(db, st, detail=False):
     st["capacity_total"] = capacity(st)
     st["value"] = round(db.execute(VALUE_SQL + " WHERE i.storage_id=?", (st["id"],)).fetchone()[0], 2)
     dk = db.execute("SELECT id, name FROM decks WHERE storage_id=?", (st["id"],)).fetchone()
-    st["deck"] = dict(dk) if dk else None
+    st["deck"] = dict(dk) if dk else ({"id": None, "name": st["name"], "owner": st["deck_of"]} if st.get("deck_of")
+                                      else None)  # a partner's deck box
     if st["kind"] == "binder":
         st["page_count"] = page_count(st)
         cap, pp = capacity(st), per_page(st)
@@ -774,10 +803,10 @@ def storage_summary(db, st, detail=False):
 ITEM_SQL = """SELECT i.*, c.name, c.set_code, c.collector_number, c.rarity, c.image, c.image_large, c.type_line,
   c.cardmarket_id,
   s.name AS set_name, st.name AS storage_name, st.kind, st.rows, st.cols, st.sheets, st.double_sided, st.color,
-  """ + price_sql("i.foil") + """ AS price
+  sh.name AS shelf_name, """ + price_sql("i.foil") + """ AS price
   FROM items i JOIN cards c ON c.id=i.card_id LEFT JOIN sets s ON s.code=c.set_code
   LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id
-  JOIN storages st ON st.id=i.storage_id"""
+  JOIN storages st ON st.id=i.storage_id LEFT JOIN deck_shelves sh ON sh.id=st.shelf_id"""
 
 VALUE_SQL = ("SELECT COALESCE(SUM(i.qty * " + price_sql("i.foil") + "),0) FROM items i JOIN cards c ON c.id=i.card_id "
              "LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id")
@@ -785,6 +814,8 @@ VALUE_SQL = ("SELECT COALESCE(SUM(i.qty * " + price_sql("i.foil") + "),0) FROM i
 
 def item_dict(r):
     d = dict(r)
+    if d.get("shelf_name"):  # a deck box in a deck storage: say where to find the box
+        d["storage_name"] = d["shelf_name"] + " › " + d["storage_name"]
     st = {"name": d["storage_name"], "kind": d["kind"], "rows": d["rows"], "cols": d["cols"],
           "sheets": d["sheets"], "double_sided": d["double_sided"]}
     d["loc"] = slot_loc(st, d["slot"]) if d["kind"] == "binder" and d["slot"] is not None else None
@@ -809,7 +840,7 @@ def card_view(db, cid):
 def suggest(db, card_id):
     card = card_view(db, card_id)
     sugg, notes = [], []
-    for st in db.execute("SELECT * FROM storages WHERE id NOT IN (SELECT storage_id FROM decks "
+    for st in db.execute("SELECT * FROM storages WHERE deck_of IS NULL AND id NOT IN (SELECT storage_id FROM decks "
                          "WHERE storage_id IS NOT NULL) ORDER BY id").fetchall():  # deck boxes hold their deck only
         st = dict(st)
         codes = {r[0] for r in db.execute("SELECT set_code FROM storage_sets WHERE storage_id=?", (st["id"],))}
@@ -953,6 +984,47 @@ def r_card_search(db, q, b):
 @route("POST", "/api/suggest")
 def r_suggest(db, q, b):
     return suggest(db, b.get("card_id"))
+
+
+@route("GET", "/api/shelves")
+def r_shelves(db, q, b):
+    """Deck storages: shelves, drawers or cases that hold deck boxes."""
+    return [dict(r) for r in db.execute("SELECT id, name FROM deck_shelves ORDER BY name")]
+
+
+def shelf_name(b):
+    name = str(b.get("name") or "").strip()[:60]
+    if not name:
+        raise ApiError(400, "Give the deck storage a name")
+    return name
+
+
+@route("POST", "/api/shelves")
+def r_shelf_create(db, q, b):
+    db.execute("INSERT INTO deck_shelves(name) VALUES(?)", (shelf_name(b),))
+    return r_shelves(db, q, b)
+
+
+@route("PUT", r"/api/shelves/(\d+)")
+def r_shelf_rename(db, q, b, sid):
+    db.execute("UPDATE deck_shelves SET name=? WHERE id=?", (shelf_name(b), int(sid)))
+    return r_shelves(db, q, b)
+
+
+@route("DELETE", r"/api/shelves/(\d+)")
+def r_shelf_delete(db, q, b, sid):
+    db.execute("UPDATE storages SET shelf_id=NULL WHERE shelf_id=?", (int(sid),))  # its deck boxes stay
+    db.execute("DELETE FROM deck_shelves WHERE id=?", (int(sid),))
+    return r_shelves(db, q, b)
+
+
+@route("PUT", r"/api/storages/(\d+)/shelf")
+def r_storage_shelf(db, q, b, sid):
+    shelf = b.get("shelf_id")
+    if shelf is not None and not db.execute("SELECT 1 FROM deck_shelves WHERE id=?", (shelf,)).fetchone():
+        raise ApiError(404, "Deck storage not found")
+    db.execute("UPDATE storages SET shelf_id=? WHERE id=?", (shelf, int(sid)))
+    return {"ok": True}
 
 
 @route("GET", "/api/storages")
@@ -1865,6 +1937,7 @@ def r_deck_update(db, q, b, did):
 @route("DELETE", r"/api/decks/(\d+)")
 def r_deck_delete(db, q, b, did):
     # a physical deck's box stays (as an ordinary box) so its cards stay in the collection
+    db.execute("UPDATE storages SET deck_of=NULL WHERE id=(SELECT storage_id FROM decks WHERE id=?)", (int(did),))
     db.execute("DELETE FROM deck_cards WHERE deck_id=?", (int(did),))
     db.execute("DELETE FROM decks WHERE id=?", (int(did),))
     return {"ok": True}
@@ -1915,8 +1988,8 @@ def make_physical(db, did):
     d = db.execute("SELECT * FROM decks WHERE id=?", (did,)).fetchone()
     if d["storage_id"]:
         return
-    sid = db.execute("INSERT INTO storages(name,kind,mode,double_sided,color,notes) VALUES(?,?,?,?,?,?)",
-                     (d["name"], "box", "sequential", 0, "#6b4fb0", "Deck box")).lastrowid
+    sid = db.execute("INSERT INTO storages(name,kind,mode,double_sided,color,notes,deck_of) VALUES(?,?,?,?,?,?,?)",
+                     (d["name"], "box", "sequential", 0, "#6b4fb0", "Deck box", _req.user["username"])).lastrowid
     db.execute("UPDATE decks SET storage_id=? WHERE id=?", (sid, did))
     for r in db.execute("SELECT card_id, foil, board, qty FROM deck_cards WHERE deck_id=?", (did,)).fetchall():
         box_put(db, sid, r["card_id"], r["foil"], r["board"], r["qty"])
@@ -1933,6 +2006,7 @@ def r_deck_physical(db, q, b, did):
         if not b.get("keep_cards"):
             db.execute("DELETE FROM items WHERE storage_id=?", (d["storage_id"],))
             db.execute("DELETE FROM storages WHERE id=?", (d["storage_id"],))
+            db.execute("UPDATE storages SET deck_of=NULL WHERE id=?", (d["storage_id"],))
         db.execute("UPDATE decks SET storage_id=NULL WHERE id=?", (d["id"],))
     return deck_view(db, d["id"])
 
@@ -2788,6 +2862,119 @@ def r_password(db, q, b):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------- the Log
+# Every change to binders and boxes is found by comparing the collection before and after a request, so no route has
+# to remember to log anything: cards added, removed, moved between places, printing/foil changes, places and sets.
+
+def collection_state(db):
+    items = {}
+    for cid, foil, sid, n in db.execute("SELECT card_id, foil, storage_id, SUM(qty) FROM items GROUP BY 1, 2, 3"):
+        items.setdefault((cid, foil), {})[sid] = n
+    return (items, {r[0]: r[1] for r in db.execute("SELECT id, name FROM storages")},
+            set(map(tuple, db.execute("SELECT storage_id, set_code FROM storage_sets"))),
+            {r[0]: r[1] for r in db.execute("SELECT id, name FROM deck_shelves")},
+            {r[0]: r[1] for r in db.execute("SELECT id, shelf_id FROM storages")})
+
+
+def log_changes(db, before, after, user):
+    (bi, bs, bss, bsh, bin_), (ai, as_, ass, ash, ain) = before, after
+    place = lambda sid: as_.get(sid) or bs.get(sid) or "?"
+    shelf = lambda i: ash.get(i) or bsh.get(i)
+    ev = []  # (kind, card key or None, qty, data)
+    for i in sorted(ash.keys() - bsh.keys()):
+        ev.append(("shelf_new", None, None, {"to": ash[i]}))
+    for i in sorted(bsh.keys() - ash.keys()):
+        ev.append(("shelf_del", None, None, {"from": bsh[i]}))
+    for i in sorted(bsh.keys() & ash.keys()):
+        if bsh[i] != ash[i]:
+            ev.append(("place_rename", None, None, {"from": bsh[i], "to": ash[i]}))
+    for sid in sorted(bin_.keys() & ain.keys()):
+        if bin_[sid] != ain[sid] and ain[sid] is not None:
+            ev.append(("shelve", None, None, {"box": place(sid), "to": shelf(ain[sid])}))
+        elif bin_[sid] != ain[sid] and bin_[sid] in ash:  # taken out, not because its deck storage was deleted
+            ev.append(("unshelve", None, None, {"box": place(sid), "from": shelf(bin_[sid])}))
+    for sid in sorted(as_.keys() - bs.keys()):
+        ev.append(("place_new", None, None, {"to": as_[sid]}))
+    for sid in sorted(bs.keys() - as_.keys()):
+        ev.append(("place_del", None, None, {"from": bs[sid]}))
+    for sid in sorted(bs.keys() & as_.keys()):
+        if bs[sid] != as_[sid]:
+            ev.append(("place_rename", None, None, {"from": bs[sid], "to": as_[sid]}))
+    for sid, code in sorted(ass - bss):
+        ev.append(("set_add", None, None, {"to": place(sid), "set": code}))
+    for sid, code in sorted(bss - ass):
+        if sid in as_:
+            ev.append(("set_del", None, None, {"from": place(sid), "set": code}))
+    adds, removes = [], []
+    for key in bi.keys() | ai.keys():
+        b, a = bi.get(key, {}), ai.get(key, {})
+        plus = [[sid, a.get(sid, 0) - b.get(sid, 0)] for sid in a if a.get(sid, 0) > b.get(sid, 0)]
+        minus = [[sid, b.get(sid, 0) - a.get(sid, 0)] for sid in b if b.get(sid, 0) > a.get(sid, 0)]
+        while plus and minus:  # copies that left one place and arrived in another moved
+            n = min(plus[0][1], minus[0][1])
+            ev.append(("move", key, n, {"from": place(minus[0][0]), "to": place(plus[0][0])}))
+            plus[0][1] -= n
+            minus[0][1] -= n
+            plus, minus = [p for p in plus if p[1]], [m for m in minus if m[1]]
+        adds += [(key, sid, n) for sid, n in plus]
+        removes += [(key, sid, n) for sid, n in minus]
+    if not ev and not adds and not removes:
+        return
+    keys = {k for e in ev if e[1] for k in [e[1]]} | {a[0] for a in adds} | {r[0] for r in removes}
+    info = {r[0]: dict(r) for r in db.execute(
+        "SELECT id, name, set_code, collector_number FROM cards WHERE id IN (SELECT value FROM json_each(?))",
+        (json.dumps(sorted({k[0] for k in keys})),))}
+    card = lambda k: {"name": (info.get(k[0]) or {}).get("name") or "?", "set": (info.get(k[0]) or {}).get("set_code"),
+                      "num": (info.get(k[0]) or {}).get("collector_number")}
+    for r in list(removes):  # the same card, same place, same count gone and back: a printing or foil change
+        m = next((a for a in adds if a[1] == r[1] and a[2] == r[2] and card(a[0])["name"] == card(r[0])["name"]), None)
+        if m:
+            adds.remove(m)
+            removes.remove(r)
+            old = card(r[0])
+            ev.append(("change", m[0], m[2], {"to": place(m[1]), "old_set": old["set"], "old_num": old["num"],
+                                             "old_foil": r[0][1]}))
+    ev += [("add", k, n, {"to": place(sid)}) for k, sid, n in adds]
+    ev += [("remove", k, n, {"from": place(sid)}) for k, sid, n in removes]
+    batch = (db.execute("SELECT MAX(batch) FROM events").fetchone()[0] or 0) + 1
+    db.executemany("INSERT INTO events(batch, user, kind, card_id, foil, qty, data) VALUES(?,?,?,?,?,?,?)",
+                   [(batch, user, kind, k and k[0], k and k[1], n, json.dumps({**(card(k) if k else {}), **d}))
+                    for kind, k, n, d in ev])
+
+
+def seed_log(db):
+    """A new Log starts with the cards already there, as added on the day each was added."""
+    if db.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+        return
+    rows = db.execute("""SELECT i.added_at, i.card_id, i.foil, i.qty, c.name, c.set_code, c.collector_number,
+                                st.name AS place FROM items i JOIN cards c ON c.id=i.card_id
+                         JOIN storages st ON st.id=i.storage_id ORDER BY i.added_at, i.id""").fetchall()
+    batches = {}
+    for r in rows:
+        b = batches.setdefault(r["added_at"][:16], len(batches) + 1)  # one entry per minute of adding
+        db.execute("INSERT INTO events(batch, at, user, kind, card_id, foil, qty, data) VALUES(?,?,?,?,?,?,?,?)",
+                   (b, r["added_at"], None, "add", r["card_id"], r["foil"], r["qty"],
+                    json.dumps({"name": r["name"], "set": r["set_code"], "num": r["collector_number"],
+                                "to": r["place"]})))
+
+
+@route("GET", "/api/log")
+def r_log(db, q, b):
+    """The Log, newest first, a page of change batches (one per action) at a time."""
+    before = as_int(q.get("before"), "before", default=10 ** 12)
+    batches = [r[0] for r in db.execute("SELECT DISTINCT batch FROM events WHERE batch<? ORDER BY batch DESC LIMIT 40",
+                                        (before,))]
+    out = []
+    for bt in batches:
+        evs = [dict(r) for r in db.execute(
+            "SELECT e.kind, e.card_id, e.foil, e.qty, e.data, e.at, e.user, c.image FROM events e "
+            "LEFT JOIN cards c ON c.id=e.card_id WHERE e.batch=? ORDER BY e.id", (bt,))]
+        for e in evs:
+            e.update(json.loads(e.pop("data") or "{}"))
+        out.append({"batch": bt, "at": evs[0]["at"], "user": evs[0]["user"], "events": evs})
+    return {"batches": out, "more": len(batches) == 40}
+
+
 # ---------------------------------------------------------------- partners sharing binders & boxes
 
 def sharing_view(db):
@@ -3139,9 +3326,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": "Bad JSON"})
             db = connect(*((None,) if access == "public" else (user["id"], user["library"])))
             try:
+                # the Log compares the binders before and after; sharing changes and restores swap whole collections
+                logged = method != "GET" and access != "public" and not u.path.startswith(("/api/sharing",
+                                                                                           "/api/admin/restore"))
+                before = collection_state(db) if logged else None
                 res = fn(db, q, body, *mm.groups())
                 if method != "GET" and access != "public" and not getattr(_req, "skip_stamp", False):
                     stamp_new_items(db)
+                if logged:
+                    log_changes(db, before, collection_state(db), user["username"])
                 db.commit()
             except ApiError as e:
                 db.rollback()
