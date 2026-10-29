@@ -7,13 +7,24 @@ Open:  http://127.0.0.1:8765
 
 Needs only Python 3.8+ - no extra packages. Card and set data come from
 Scryfall (internet needed for lookups; everything you add is cached locally).
-Your collection is stored in library.db next to this file - back it up by copying it.
+The card catalog and accounts are stored in library.db next to this file, each user's collection in
+users/<id>.db - back them up by copying them.
+
+Accounts: python3 server.py create-admin <name>   (prints a new password)
+          python3 server.py reset-password <name>
+          python3 server.py invite [count]        (one-time sign-up codes; admins can also make them in the app)
+Set CARDLIB_HOST=0.0.0.0 to let other computers on the network in.
 """
 import csv
+import hashlib
+import hmac
+import http.cookies
 import io
 import json
 import os
 import re
+import secrets
+import shutil
 import sqlite3
 import sys
 import threading
@@ -27,7 +38,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("CARDLIB_DB", os.path.join(HERE, "library.db"))
+USERS_DIR = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "users")  # one database per user
 PORT = int(os.environ.get("CARDLIB_PORT", "8765"))
+HOST = os.environ.get("CARDLIB_HOST", "127.0.0.1")  # 0.0.0.0 to let other computers in
 STATIC = os.path.join(HERE, "static")
 SCRYFALL = "https://api.scryfall.com"
 # Cardmarket's public daily price guide for Magic (all products, trend/avg/low, foil and non-foil)
@@ -38,6 +51,8 @@ MTGJSON = "https://mtgjson.com/api/v5"  # set files list sealed products and the
 MTGJSON_MAX_AGE = 7 * 24 * 3600  # refresh prices at start-up when older than this
 UA = "CardLibraryLocal/1.0 (personal collection tool)"
 
+# Shared by everyone: the card catalog, prices, sealed products, accounts. Each user's own collection lives in a
+# database of its own (users/<id>.db, USER_SCHEMA) with this one attached, so queries can join the two freely.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sets(
   code TEXT PRIMARY KEY, name TEXT, released_at TEXT, card_count INT,
@@ -48,6 +63,31 @@ CREATE TABLE IF NOT EXISTS cards(
   cardmarket_id INT, eur REAL, eur_foil REAL);
 CREATE INDEX IF NOT EXISTS idx_cards_set ON cards(set_code);
 CREATE INDEX IF NOT EXISTS idx_cards_name ON cards(name);
+CREATE TABLE IF NOT EXISTS cm_prices(
+  id_product INTEGER PRIMARY KEY, trend REAL, trend_foil REAL, avg REAL, avg_foil REAL, low REAL, low_foil REAL,
+  avg1 REAL, avg1_foil REAL, avg7 REAL, avg7_foil REAL, avg30 REAL, avg30_foil REAL);
+CREATE TABLE IF NOT EXISTS price_history(
+  day TEXT, card_id TEXT, foil INT, price REAL, PRIMARY KEY(day, card_id, foil));
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS prints_loaded(name TEXT PRIMARY KEY, fetched REAL);
+CREATE TABLE IF NOT EXISTS rec_decks(
+  id INTEGER PRIMARY KEY, format TEXT, source TEXT, name TEXT, url TEXT, meta REAL, popularity INT,
+  image TEXT, cards TEXT, fetched REAL);
+CREATE TABLE IF NOT EXISTS rec_names(name TEXT PRIMARY KEY, card_id TEXT);
+CREATE TABLE IF NOT EXISTS mj_sets(code TEXT PRIMARY KEY, fetched REAL, data TEXT);
+CREATE TABLE IF NOT EXISTS cm_products(id_product INTEGER PRIMARY KEY, name TEXT, category TEXT, id_expansion INT);
+CREATE INDEX IF NOT EXISTS idx_cm_products_name ON cm_products(name);
+CREATE TABLE IF NOT EXISTS users(
+  id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, pw_hash TEXT NOT NULL,
+  is_admin INT DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS sessions(
+  token_hash TEXT PRIMARY KEY, user_id INT NOT NULL, created_at REAL, seen_at REAL);
+CREATE TABLE IF NOT EXISTS invites(
+  code TEXT PRIMARY KEY, created_by INT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, used_by INT, used_at TEXT);
+"""
+
+# One user's collection. Card ids point into the shared catalog (no foreign keys across database files).
+USER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS storages(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('binder','box')),
@@ -59,37 +99,27 @@ CREATE TABLE IF NOT EXISTS storage_sets(
   position INT, new_page INT DEFAULT 1, include_extras INT DEFAULT 0, one_per_card INT DEFAULT 0,
   PRIMARY KEY(storage_id, set_code));
 CREATE TABLE IF NOT EXISTS items(
-  id INTEGER PRIMARY KEY, card_id TEXT REFERENCES cards(id),
+  id INTEGER PRIMARY KEY, card_id TEXT,
   storage_id INT REFERENCES storages(id), slot INT, section TEXT,
   foil INT DEFAULT 0, condition TEXT DEFAULT 'NM', lang TEXT DEFAULT 'en',
   qty INT DEFAULT 1, added_at TEXT DEFAULT CURRENT_TIMESTAMP, price_at_add REAL, price_at_add_est INT DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_items_storage ON items(storage_id);
 CREATE INDEX IF NOT EXISTS idx_items_card ON items(card_id);
-CREATE TABLE IF NOT EXISTS cm_prices(
-  id_product INTEGER PRIMARY KEY, trend REAL, trend_foil REAL, avg REAL, avg_foil REAL, low REAL, low_foil REAL,
-  avg1 REAL, avg1_foil REAL, avg7 REAL, avg7_foil REAL, avg30 REAL, avg30_foil REAL);
 CREATE TABLE IF NOT EXISTS value_history(
   day TEXT PRIMARY KEY, value REAL, cards INT, unique_cards INT, updated_at TEXT);
-CREATE TABLE IF NOT EXISTS price_history(
-  day TEXT, card_id TEXT, foil INT, price REAL, PRIMARY KEY(day, card_id, foil));
-CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS user_meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS decks(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, format TEXT, notes TEXT, source TEXT,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP, storage_id INT);
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP, storage_id INT, want INT DEFAULT 0);
+CREATE TABLE IF NOT EXISTS liked(card_id TEXT PRIMARY KEY, added_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS deck_cards(
-  id INTEGER PRIMARY KEY, deck_id INT REFERENCES decks(id) ON DELETE CASCADE, card_id TEXT REFERENCES cards(id),
+  id INTEGER PRIMARY KEY, deck_id INT REFERENCES decks(id) ON DELETE CASCADE, card_id TEXT,
   qty INT DEFAULT 1, board TEXT DEFAULT 'main', foil INT DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_deck_cards_deck ON deck_cards(deck_id);
 CREATE TABLE IF NOT EXISTS wishlist(
   uuid TEXT PRIMARY KEY, root TEXT, set_code TEXT, name TEXT, added_at TEXT DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS rec_decks(
-  id INTEGER PRIMARY KEY, format TEXT, source TEXT, name TEXT, url TEXT, meta REAL, popularity INT,
-  image TEXT, cards TEXT, fetched REAL);
-CREATE TABLE IF NOT EXISTS rec_names(name TEXT PRIMARY KEY, card_id TEXT);
-CREATE TABLE IF NOT EXISTS mj_sets(code TEXT PRIMARY KEY, fetched REAL, data TEXT);
-CREATE TABLE IF NOT EXISTS cm_products(id_product INTEGER PRIMARY KEY, name TEXT, category TEXT, id_expansion INT);
-CREATE INDEX IF NOT EXISTS idx_cm_products_name ON cm_products(name);
 """
+USER_TABLES = ("storages", "storage_sets", "items", "value_history", "decks", "liked", "deck_cards", "wishlist")
 
 
 class ApiError(Exception):
@@ -99,29 +129,97 @@ class ApiError(Exception):
         self.msg = msg
 
 
-def connect():
-    db = sqlite3.connect(DB_PATH, timeout=30)
+def user_db_path(uid):
+    return os.path.join(USERS_DIR, f"{int(uid)}.db")
+
+
+def connect(uid=None):
+    """The shared database, or - with a user id - that user's collection with the shared one attached as `cat`.
+    Table names are unique across the two, so unqualified names find the right one."""
+    db = sqlite3.connect(user_db_path(uid) if uid else DB_PATH, timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
+    if uid:
+        db.execute("ATTACH DATABASE ? AS cat", (DB_PATH,))
     return db
+
+
+def init_user_db(uid):
+    os.makedirs(USERS_DIR, exist_ok=True)
+    db = sqlite3.connect(user_db_path(uid), timeout=30)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.executescript(USER_SCHEMA)
+    db.commit()
+    db.close()
+
+
+def user_ids(db):
+    return [r[0] for r in db.execute("SELECT id FROM users ORDER BY id")]
+
+
+def get_umeta(db, key):
+    r = db.execute("SELECT value FROM user_meta WHERE key=?", (key,)).fetchone()
+    return r[0] if r else None
+
+
+def migrate_single_user(db):
+    """Databases from before accounts kept one collection next to the catalog: move it into the first admin's own
+    database (a copy of the old file is kept as library.pre-users.db)."""
+    have = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    legacy = [t for t in USER_TABLES if t in have]
+    if not legacy:
+        return
+    owner = db.execute("SELECT id FROM users WHERE is_admin=1 ORDER BY id").fetchone()
+    if not owner:
+        sys.exit("This library was made before accounts existed. Create the admin who will own it first:\n"
+                 "    python3 server.py create-admin <username>")
+    backup = os.path.splitext(DB_PATH)[0] + ".pre-users.db"
+    if not os.path.exists(backup):
+        db.commit()
+        out = sqlite3.connect(backup)
+        db.backup(out)
+        out.close()
+    init_user_db(owner[0])
+    db.commit()
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("ATTACH DATABASE ? AS u", (user_db_path(owner[0]),))
+    for t in legacy:
+        cols = [r[1] for r in db.execute(f"PRAGMA main.table_info({t})")]
+        keep = ",".join(c for c in (r[1] for r in db.execute(f"PRAGMA u.table_info({t})")) if c in cols)
+        db.execute(f"INSERT INTO u.{t}({keep}) SELECT {keep} FROM main.{t}")
+    db.execute("INSERT OR REPLACE INTO u.user_meta SELECT key, value FROM main.meta "
+               "WHERE key IN ('snap_at','backfill_add_price')")
+    db.execute("DELETE FROM main.meta WHERE key IN ('snap_at','backfill_add_price')")
+    for t in ("deck_cards", "items", "storage_sets", "decks", "storages", "value_history", "liked", "wishlist"):
+        if t in legacy:
+            db.execute(f"DROP TABLE main.{t}")
+    db.commit()
+    db.execute("DETACH DATABASE u")
+    db.execute("PRAGMA foreign_keys=ON")
+    print(f"Moved your collection into {user_db_path(owner[0])} (backup of the old file: {backup})")
 
 
 def init_db():
     db = connect()
     db.execute("PRAGMA journal_mode=WAL")
     db.executescript(SCHEMA)
+    have = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if "booster" not in {r[1] for r in db.execute("PRAGMA table_info(cards)")}:
         # older databases: add the column and reload set card lists so it gets filled in
         db.execute("ALTER TABLE cards ADD COLUMN booster INT")
         db.execute("UPDATE sets SET cards_loaded=0")
-    if "storage_id" not in {r[1] for r in db.execute("PRAGMA table_info(decks)")}:
+    # upgrades of the old single-user layout, before migrate_single_user moves its collection
+    dcols = {r[1] for r in db.execute("PRAGMA table_info(decks)")}
+    if "decks" in have and "storage_id" not in dcols:
         db.execute("ALTER TABLE decks ADD COLUMN storage_id INT")  # the box of a physical deck
+    if "decks" in have and "want" not in dcols:
+        db.execute("ALTER TABLE decks ADD COLUMN want INT DEFAULT 0")  # its missing cards are tracked in Discounts
     if "parent_set_code" not in {r[1] for r in db.execute("PRAGMA table_info(sets)")}:
         db.execute("ALTER TABLE sets ADD COLUMN parent_set_code TEXT")
         db.execute("INSERT OR REPLACE INTO meta VALUES('sets_need_parents','1')")
-    if "one_per_card" not in {r[1] for r in db.execute("PRAGMA table_info(storage_sets)")}:
+    if "storage_sets" in have and "one_per_card" not in {r[1] for r in db.execute("PRAGMA table_info(storage_sets)")}:
         db.execute("ALTER TABLE storage_sets ADD COLUMN one_per_card INT DEFAULT 0")
-    if "price_at_add" not in {r[1] for r in db.execute("PRAGMA table_info(items)")}:
+    if "items" in have and "price_at_add" not in {r[1] for r in db.execute("PRAGMA table_info(items)")}:
         db.execute("ALTER TABLE items ADD COLUMN price_at_add REAL")
         db.execute("ALTER TABLE items ADD COLUMN price_at_add_est INT DEFAULT 0")
         db.execute("INSERT OR REPLACE INTO meta VALUES('backfill_add_price','1')")
@@ -135,6 +233,9 @@ def init_db():
         if col not in cols:
             db.execute(f"ALTER TABLE cards ADD COLUMN {col} {typ}")
     db.commit()
+    migrate_single_user(db)
+    for uid in user_ids(db):
+        init_user_db(uid)  # creates missing tables of databases made by an older version
     db.close()
 
 
@@ -142,6 +243,17 @@ def init_db():
 
 _sf_lock = threading.Lock()
 _sf_last = [0.0]
+# Scryfall: ~10 requests/second in general, but only ~2/second for searches, name lookups and collections
+SF_FAST, SF_SLOW = 0.11, 0.55
+SF_SLOW_PATHS = ("/cards/search", "/cards/named", "/cards/collection")
+
+
+def _sf_wait(gap):
+    """Call with _sf_lock held: wait until `gap` seconds have passed since the previous Scryfall request."""
+    wait = gap - (time.time() - _sf_last[0])
+    if wait > 0:
+        time.sleep(wait)
+    _sf_last[0] = time.time()
 
 
 def sf_get(path_or_url, params=None):
@@ -149,21 +261,27 @@ def sf_get(path_or_url, params=None):
     url = path_or_url if path_or_url.startswith("http") else SCRYFALL + path_or_url
     if params:
         url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
-    with _sf_lock:  # Scryfall asks for ~10 requests/second max
-        wait = 0.11 - (time.time() - _sf_last[0])
-        if wait > 0:
-            time.sleep(wait)
-        _sf_last[0] = time.time()
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        raise ApiError(502, f"Scryfall answered with error {e.code}")
-    except (urllib.error.URLError, TimeoutError, OSError):
-        raise ApiError(502, "Can't reach Scryfall - an internet connection is needed for card lookups.")
+    slow = any(x in url for x in SF_SLOW_PATHS)
+    for attempt in (1, 2, 3):
+        with _sf_lock:
+            _sf_wait(SF_SLOW if slow else SF_FAST)
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            if e.code == 429 and attempt < 3:  # too many requests: wait as long as Scryfall asks
+                try:
+                    pause = float(e.headers.get("Retry-After") or 3)
+                except ValueError:
+                    pause = 3
+                time.sleep(min(max(pause, 1), 30))
+                continue
+            raise ApiError(502, f"Scryfall answered with error {e.code}")
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise ApiError(502, "Can't reach Scryfall - an internet connection is needed for card lookups.")
 
 
 def card_row(c):
@@ -287,12 +405,20 @@ def refresh_prices(force=False):
                 except (urllib.error.URLError, TimeoutError, OSError, ValueError):
                     pass  # booster prices are optional
             # owned cards without a Cardmarket id (saved by an older version): ask Scryfall, 75 at a time
-            ids = [r[0] for r in db.execute(
-                "SELECT DISTINCT c.id FROM cards c JOIN items i ON i.card_id=c.id WHERE c.cardmarket_id IS NULL "
-                "AND c.eur IS NULL")]
+            ids, binder_sets = set(), set()
+            for uid in user_ids(db):
+                u = connect(uid)
+                try:
+                    ids |= {r[0] for r in u.execute(
+                        "SELECT DISTINCT c.id FROM cards c JOIN items i ON i.card_id=c.id WHERE c.cardmarket_id IS NULL "
+                        "AND c.eur IS NULL")}
+                    binder_sets |= {r[0] for r in u.execute("SELECT set_code FROM storage_sets")}
+                finally:
+                    u.close()
+            ids = sorted(ids)
             for k in range(0, len(ids), 75):
                 with _sf_lock:
-                    time.sleep(0.11)
+                    _sf_wait(SF_SLOW)
                 body = json.dumps({"identifiers": [{"id": x} for x in ids[k:k + 75]]}).encode()
                 req = urllib.request.Request(SCRYFALL + "/cards/collection", data=body, headers={
                     "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json"})
@@ -304,8 +430,9 @@ def refresh_prices(force=False):
                     break
             # binder sets whose card lists were saved before prices existed: reload them once
             for (code,) in db.execute(
-                    "SELECT c.set_code FROM cards c WHERE c.set_code IN (SELECT set_code FROM storage_sets) "
-                    "GROUP BY c.set_code HAVING SUM(c.cardmarket_id IS NULL) * 2 > COUNT(*)").fetchall():
+                    "SELECT c.set_code FROM cards c WHERE c.set_code IN (SELECT value FROM json_each(?)) "
+                    "GROUP BY c.set_code HAVING SUM(c.cardmarket_id IS NULL) * 2 > COUNT(*)",
+                    (json.dumps(sorted(binder_sets)),)).fetchall():
                 try:
                     ensure_set_cards(db, code, force=True)
                     db.commit()
@@ -691,9 +818,11 @@ def suggest(db, card_id):
 ROUTES = []
 
 
-def route(method, pattern):
+def route(method, pattern, access="user"):
+    """access: "public" (no account needed, gets the shared database), "user" or "admin" (gets the signed-in user's
+    database)."""
     def deco(fn):
-        ROUTES.append((method, re.compile("^" + pattern + "$"), fn))
+        ROUTES.append((method, re.compile("^" + pattern + "$"), fn, access))
         return fn
     return deco
 
@@ -1369,7 +1498,7 @@ def sf_collection(db, ids):
     """Load cards we don't have yet from Scryfall by id (75 per request)."""
     for k in range(0, len(ids), 75):
         with _sf_lock:
-            time.sleep(0.11)
+            _sf_wait(SF_SLOW)
         body = json.dumps({"identifiers": [{"id": x} for x in ids[k:k + 75]]}).encode()
         req = urllib.request.Request(SCRYFALL + "/cards/collection", data=body, headers={
             "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json"})
@@ -1674,7 +1803,7 @@ def r_decks(db, q, b):
         v = deck_view(db, d[0])
         commander = next((c for c in v["cards"] if c["board"] == "commander"), None) or \
             max(v["cards"], key=lambda c: c["price"] or 0, default=None)
-        out.append({**{k: v[k] for k in ("id", "name", "format", "source", "stats", "physical", "storage_id")},
+        out.append({**{k: v[k] for k in ("id", "name", "format", "source", "stats", "physical", "storage_id", "want")},
                     "image": commander and (commander["image_large"] or commander["image"])})
     return out
 
@@ -1702,8 +1831,9 @@ def r_deck_update(db, q, b, did):
     name = (b.get("name", d["name"]) or "").strip()
     if not name:
         raise ApiError(400, "Give the deck a name")
-    db.execute("UPDATE decks SET name=?, format=?, notes=? WHERE id=?",
-               (name, b.get("format", d["format"]) or None, b.get("notes", d["notes"]) or None, d["id"]))
+    db.execute("UPDATE decks SET name=?, format=?, notes=?, want=? WHERE id=?",
+               (name, b.get("format", d["format"]) or None, b.get("notes", d["notes"]) or None,
+                1 if b.get("want", d["want"]) else 0, d["id"]))
     if d["storage_id"]:
         db.execute("UPDATE storages SET name=? WHERE id=?", (name, d["storage_id"]))
     return deck_view(db, d["id"])
@@ -1877,7 +2007,7 @@ def r_deck_import(db, q, b, did):
     for k in range(0, len(wanted), 75):
         chunk = wanted[k:k + 75]
         with _sf_lock:
-            time.sleep(0.11)
+            _sf_wait(SF_SLOW)
         body = json.dumps({"identifiers": [w[0] for w in chunk]}).encode()
         req = urllib.request.Request(SCRYFALL + "/cards/collection", data=body, headers={
             "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json"})
@@ -1946,7 +2076,7 @@ def snapshot(db, force=False):
     """Today's collection value and the price of every owned card, for the history chart. Kept up to date while the
     app is used (at most every 10 minutes), so each day's row ends up as that day's last value."""
     today = time.strftime("%Y-%m-%d")
-    last = float(get_meta(db, "snap_at") or 0)
+    last = float(get_umeta(db, "snap_at") or 0)
     if not force and time.time() - last < 600 and \
             db.execute("SELECT 1 FROM value_history WHERE day=?", (today,)).fetchone():
         return
@@ -1957,7 +2087,7 @@ def snapshot(db, force=False):
     db.execute(f"""INSERT OR REPLACE INTO price_history
                    SELECT DISTINCT ?, i.card_id, i.foil, {price_sql("i.foil")} FROM items i JOIN cards c ON c.id=i.card_id
                    LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id""", (today,))
-    db.execute("INSERT OR REPLACE INTO meta VALUES('snap_at',?)", (str(time.time()),))
+    db.execute("INSERT OR REPLACE INTO user_meta VALUES('snap_at',?)", (str(time.time()),))
 
 
 def avg_sql(n):
@@ -2125,7 +2255,7 @@ def resolve_names(db, names):
     for k in range(0, len(todo), 75):
         chunk = todo[k:k + 75]
         with _sf_lock:
-            time.sleep(0.11)
+            _sf_wait(SF_SLOW)
         body = json.dumps({"identifiers": [{"name": n} for n in chunk]}).encode()
         req = urllib.request.Request(SCRYFALL + "/cards/collection", data=body, headers={
             "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json"})
@@ -2238,6 +2368,127 @@ def r_rec_save(db, q, b, rid):
     return deck_view(db, did)
 
 
+# ---------------------------------------------------------------- discounts (cards you like or want)
+
+DEAL_DIP = 0.90       # trend below 90% of the 30-day average
+DEAL_OFFER = 0.70     # cheapest offer below 70% of trend
+DEAL_PRINTING = 0.85  # another printing costs less than 85% of the one you track
+
+
+@route("GET", "/api/liked")
+def r_liked(db, q, b):
+    return [r[0] for r in db.execute("SELECT card_id FROM liked")]
+
+
+@route("POST", "/api/liked")
+def r_like(db, q, b):
+    card = card_view(db, b.get("card_id"))
+    db.execute("INSERT OR IGNORE INTO liked(card_id) VALUES(?)", (card["id"],))
+    return r_liked(db, q, b)
+
+
+@route("DELETE", r"/api/liked/([0-9a-f-]+)")
+def r_unlike(db, q, b, cid):
+    db.execute("DELETE FROM liked WHERE card_id=?", (cid,))
+    return r_liked(db, q, b)
+
+
+def tracked_cards(db):
+    """Cards to watch, by name: every liked printing (1 copy) and the missing copies of decks marked Want."""
+    t = {}
+    for cid, in db.execute("SELECT card_id FROM liked"):
+        c = db.execute("SELECT name FROM cards WHERE id=?", (cid,)).fetchone()
+        if c:
+            e = t.setdefault(c[0], {"name": c[0], "ref": cid, "need": 0, "deck_need": 0, "sources": []})
+            e["ref"], e["need"] = cid, max(e["need"], 1)
+            e["sources"].append({"kind": "liked"})
+    for did, in db.execute("SELECT id FROM decks WHERE want=1"):
+        d = deck_view(db, did)
+        for c in d["cards"]:
+            if c["missing"] > 0:
+                e = t.setdefault(c["name"], {"name": c["name"], "ref": c["card_id"], "need": 0, "deck_need": 0,
+                                             "sources": []})
+                e["deck_need"] += c["missing"]
+                e["need"] = max(e["need"], e["deck_need"])  # liking a card the deck needs anyway adds no copy
+                e["sources"].append({"kind": "deck", "deck_id": did, "deck": d["name"], "need": c["missing"]})
+    return t
+
+
+def load_prints(db, names, max_age=7 * 24 * 3600):
+    """All printings of these cards from Scryfall (cached a week), so a cheaper printing can be spotted."""
+    done = {r[0]: r[1] for r in db.execute(
+        f"SELECT name, fetched FROM prints_loaded WHERE name IN ({','.join('?' * len(names))})", names)} if names else {}
+    todo = [n for n in names if time.time() - done.get(n, 0) >= max_age]
+    for k in range(0, len(todo), 15):  # one search for 15 cards: Scryfall allows only ~2 searches a second
+        chunk = todo[k:k + 15]
+        q = " or ".join('!"{}"'.format(n.split(" // ")[0].replace('"', "")) for n in chunk)
+        data = sf_get("/cards/search", {"q": f"({q})", "unique": "prints", "include_extras": "true"})
+        while data:
+            save_cards(db, [c for c in data.get("data", []) if not c.get("digital")])
+            data = sf_get(data["next_page"]) if data.get("has_more") else None
+        db.executemany("INSERT OR REPLACE INTO prints_loaded VALUES(?,?)", [(n, time.time()) for n in chunk])
+        db.commit()
+    return len(todo)
+
+
+@route("POST", "/api/discounts/refresh")
+def r_discounts_refresh(db, q, b):
+    t = tracked_cards(db)
+    n = load_prints(db, sorted(t), max_age=0 if b.get("force") else 7 * 24 * 3600)
+    return {"loaded": n, **r_discounts(db, q, b)}
+
+
+@route("GET", "/api/discounts")
+def r_discounts(db, q, b):
+    """Tracked cards with a deal signal right now, from Cardmarket's daily price guide:
+    dip (trend under its 30-day average), offer (cheapest offer far under trend), printing (a cheaper printing)."""
+    min_price = float(q.get("min") or 1)
+    t = tracked_cards(db)
+    names = sorted(t)
+    rows = {}
+    if names:
+        for r in db.execute(
+                f"""SELECT c.id, c.name, c.set_code, c.collector_number, c.image, c.image_large, c.cardmarket_id,
+                           s.name AS set_name, {price_sql(0)} AS price, NULLIF(p.trend,0) AS trend,
+                           NULLIF(p.avg30,0) AS avg30, NULLIF(p.avg7,0) AS avg7, NULLIF(p.avg1,0) AS avg1,
+                           NULLIF(p.low,0) AS low
+                    FROM cards c LEFT JOIN sets s ON s.code=c.set_code LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id
+                    WHERE c.name IN ({','.join('?' * len(names))})""", names):
+            rows.setdefault(r["name"], []).append(dict(r))
+    deals, quiet = [], []
+    for name, e in t.items():
+        prints = [p for p in rows.get(name, []) if p["price"] is not None]
+        ref = next((p for p in rows.get(name, []) if p["id"] == e["ref"]), None)
+        if not ref or ref["price"] is None:
+            ref = min(prints, key=lambda p: p["price"]) if prints else None
+        item = {**e, "ref_card": ref, "signals": [], "saving": 0.0}
+        if not ref:
+            quiet.append(item)
+            continue
+        signals = []
+        if ref["trend"] and ref["avg30"] and ref["trend"] < DEAL_DIP * ref["avg30"]:
+            signals.append({"kind": "dip", "per": ref["avg30"] - ref["trend"],
+                            "pct": round((1 - ref["trend"] / ref["avg30"]) * 100), "avg30": ref["avg30"]})
+        if ref["low"] and ref["trend"] and ref["low"] < DEAL_OFFER * ref["trend"]:
+            signals.append({"kind": "offer", "per": ref["trend"] - ref["low"], "low": ref["low"],
+                            "pct": round((1 - ref["low"] / ref["trend"]) * 100)})
+        best = min(prints, key=lambda p: p["price"]) if prints else None
+        if best and best["id"] != ref["id"] and best["price"] < DEAL_PRINTING * ref["price"]:
+            signals.append({"kind": "printing", "per": ref["price"] - best["price"], "card": best,
+                            "pct": round((1 - best["price"] / ref["price"]) * 100)})
+        item["signals"] = signals
+        item["saving"] = round(e["need"] * max((s["per"] for s in signals), default=0), 2)
+        (deals if signals and ref["price"] >= min_price else quiet).append(item)
+    deals.sort(key=lambda x: -x["saving"])
+    quiet.sort(key=lambda x: -((x["ref_card"] or {}).get("price") or 0))
+    unloaded = db.execute(f"SELECT COUNT(*) FROM prints_loaded WHERE name IN ({','.join('?' * len(names))})",
+                          names).fetchone()[0] if names else 0
+    return {"deals": deals, "quiet": quiet, "tracked": len(t), "min": min_price,
+            "liked": db.execute("SELECT COUNT(*) FROM liked").fetchone()[0],
+            "want_decks": [dict(r) for r in db.execute("SELECT id, name FROM decks WHERE want=1")],
+            "prints_missing": len(names) - unloaded, "prices": prices_info(db)}
+
+
 @route("GET", "/api/export.csv")
 def r_export(db, q, b):
     buf = io.StringIO()
@@ -2253,6 +2504,230 @@ def r_export(db, q, b):
                     "" if d["price"] is None else f'{d["price"]:.2f}', d["card_id"]])
     return ("raw", buf.getvalue().encode("utf-8-sig"), "text/csv; charset=utf-8",
             {"Content-Disposition": 'attachment; filename="card-library.csv"'})
+
+
+# ---------------------------------------------------------------- accounts
+
+SESSION_COOKIE = "cl_session"
+SESSION_DAYS = 60
+PW_ITERATIONS = 310000
+USERNAME_RX = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O or 1/I lookalikes
+_req = threading.local()  # .user and .cookie of the request being handled
+_login_fails = {}  # ip -> recent failure times
+_fail_lock = threading.Lock()
+
+
+def hash_password(pw, salt=None, n=PW_ITERATIONS):
+    salt = salt or secrets.token_hex(16)
+    return f"pbkdf2_sha256${n}${salt}${hashlib.pbkdf2_hmac('sha256', pw.encode(), salt.encode(), n).hex()}"
+
+
+def check_password(pw, stored):
+    try:
+        _, n, salt, _h = stored.split("$")
+        return hmac.compare_digest(hash_password(pw, salt, int(n)), stored)
+    except ValueError:
+        return False
+
+
+def new_password():
+    return secrets.token_urlsafe(18)
+
+
+def new_invite_code():
+    return "-".join("".join(secrets.choice(INVITE_ALPHABET) for _ in range(4)) for _ in range(3))
+
+
+def check_new_password(pw):
+    if len(pw or "") < 10:
+        raise ApiError(400, "Use a password of at least 10 characters")
+
+
+def token_hash(tok):
+    return hashlib.sha256(tok.encode()).hexdigest()
+
+
+def start_session(db, uid):
+    tok = secrets.token_urlsafe(32)
+    db.execute("INSERT INTO sessions VALUES(?,?,?,?)", (token_hash(tok), uid, time.time(), time.time()))
+    _req.cookie = f"{SESSION_COOKIE}={tok}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_DAYS * 86400}"
+
+
+def session_user(cookie_header):
+    """The signed-in user of a request (by its session cookie), or None."""
+    c = http.cookies.SimpleCookie()
+    try:
+        c.load(cookie_header or "")
+    except http.cookies.CookieError:
+        return None
+    if SESSION_COOKIE not in c:
+        return None
+    h = token_hash(c[SESSION_COOKIE].value)
+    db = connect()
+    try:
+        r = db.execute("SELECT u.id, u.username, u.is_admin, s.seen_at FROM sessions s JOIN users u ON u.id=s.user_id "
+                       "WHERE s.token_hash=?", (h,)).fetchone()
+        if not r:
+            return None
+        if time.time() - r["seen_at"] > SESSION_DAYS * 86400:
+            db.execute("DELETE FROM sessions WHERE token_hash=?", (h,))
+            db.commit()
+            return None
+        if time.time() - r["seen_at"] > 3600:  # sliding expiry, refreshed at most hourly
+            db.execute("UPDATE sessions SET seen_at=? WHERE token_hash=?", (time.time(), h))
+            db.commit()
+        return {"id": r["id"], "username": r["username"], "is_admin": bool(r["is_admin"]), "token_hash": h}
+    finally:
+        db.close()
+
+
+def throttle_login(ip, failed=False):
+    """At most 10 failed sign-ins per address in 15 minutes."""
+    with _fail_lock:
+        now = time.time()
+        recent = [t for t in _login_fails.get(ip, []) if now - t < 900]
+        if failed:
+            recent.append(now)
+        _login_fails[ip] = recent
+        if len(recent) >= 10 and not failed:
+            raise ApiError(429, "Too many failed sign-ins - try again in a few minutes")
+
+
+def me():
+    u = getattr(_req, "user", None)
+    return {"user": u and {k: u[k] for k in ("id", "username", "is_admin")}}
+
+
+@route("GET", "/api/me", "public")
+def r_me(db, q, b):
+    return me()
+
+
+@route("POST", "/api/login", "public")
+def r_login(db, q, b):
+    throttle_login(_req.ip)
+    r = db.execute("SELECT id, username, is_admin, pw_hash FROM users WHERE username=?",
+                   (str(b.get("username") or "").strip(),)).fetchone()
+    if not r or not check_password(str(b.get("password") or ""), r["pw_hash"]):
+        throttle_login(_req.ip, failed=True)
+        time.sleep(0.4)
+        raise ApiError(401, "Wrong username or password")
+    start_session(db, r["id"])
+    _req.user = {"id": r["id"], "username": r["username"], "is_admin": bool(r["is_admin"])}
+    return me()
+
+
+@route("POST", "/api/register", "public")
+def r_register(db, q, b):
+    throttle_login(_req.ip)
+    code = str(b.get("invite") or "").strip().upper()
+    name = str(b.get("username") or "").strip()
+    pw = str(b.get("password") or "")
+    if not USERNAME_RX.match(name):
+        raise ApiError(400, "Username: 3-32 letters, digits, dots, dashes or underscores")
+    check_new_password(pw)
+    # claim the invite first: of two people using the same code at once, only one gets it
+    if db.execute("UPDATE invites SET used_at=CURRENT_TIMESTAMP WHERE code=? AND used_at IS NULL",
+                  (code,)).rowcount != 1:
+        throttle_login(_req.ip, failed=True)
+        raise ApiError(400, "This invite code is not valid or was already used")
+    if db.execute("SELECT 1 FROM users WHERE username=?", (name,)).fetchone():
+        raise ApiError(400, "This username is taken")
+    uid = db.execute("INSERT INTO users(username, pw_hash) VALUES(?,?)", (name, hash_password(pw))).lastrowid
+    db.execute("UPDATE invites SET used_by=? WHERE code=?", (uid, code))
+    init_user_db(uid)
+    start_session(db, uid)
+    _req.user = {"id": uid, "username": name, "is_admin": False}
+    return me()
+
+
+@route("POST", "/api/logout", "public")
+def r_logout(db, q, b):
+    u = getattr(_req, "user", None)
+    if u:
+        db.execute("DELETE FROM sessions WHERE token_hash=?", (u["token_hash"],))
+    _req.cookie = f"{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+    return {"ok": True}
+
+
+@route("POST", "/api/account/password")
+def r_password(db, q, b):
+    u = _req.user
+    r = db.execute("SELECT pw_hash FROM users WHERE id=?", (u["id"],)).fetchone()
+    if not check_password(str(b.get("old") or ""), r["pw_hash"]):
+        raise ApiError(400, "The current password is wrong")
+    check_new_password(b.get("new"))
+    db.execute("UPDATE users SET pw_hash=? WHERE id=?", (hash_password(b["new"]), u["id"]))
+    db.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (u["id"], u["token_hash"]))  # sign out elsewhere
+    return {"ok": True}
+
+
+@route("GET", "/api/admin/invites", "admin")
+def r_invites(db, q, b):
+    return [dict(r) for r in db.execute(
+        "SELECT i.code, i.created_at, i.used_at, u.username AS used_by FROM invites i "
+        "LEFT JOIN users u ON u.id=i.used_by ORDER BY i.used_at IS NOT NULL, i.created_at DESC")]
+
+
+@route("POST", "/api/admin/invites", "admin")
+def r_invites_create(db, q, b):
+    codes = [new_invite_code() for _ in range(as_int(b.get("count"), "count", 1, 50, default=1))]
+    db.executemany("INSERT INTO invites(code, created_by) VALUES(?,?)", [(c, _req.user["id"]) for c in codes])
+    return {"codes": codes}
+
+
+@route("DELETE", r"/api/admin/invites/([A-Z0-9-]+)", "admin")
+def r_invite_delete(db, q, b, code):
+    db.execute("DELETE FROM invites WHERE code=? AND used_at IS NULL", (code,))
+    return {"ok": True}
+
+
+@route("GET", "/api/admin/users", "admin")
+def r_users(db, q, b):
+    out = []
+    for r in db.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id").fetchall():
+        u = connect(r["id"])
+        try:
+            cards = u.execute("SELECT COALESCE(SUM(qty),0) FROM items").fetchone()[0]
+        finally:
+            u.close()
+        out.append({**dict(r), "is_admin": bool(r["is_admin"]), "cards": cards})
+    return out
+
+
+def cli(args):
+    """python3 server.py create-admin <name> | reset-password <name> | invite [count]"""
+    db = connect()
+    db.executescript(SCHEMA)
+    cmd = args[0]
+    if cmd in ("create-admin", "reset-password") and len(args) == 2:
+        name, pw = args[1], new_password()
+        r = db.execute("SELECT id FROM users WHERE username=?", (name,)).fetchone()
+        if cmd == "create-admin":
+            if not USERNAME_RX.match(name):
+                sys.exit("Username: 3-32 letters, digits, dots, dashes or underscores")
+            if r:
+                db.execute("UPDATE users SET is_admin=1, pw_hash=? WHERE id=?", (hash_password(pw), r[0]))
+            else:
+                db.execute("INSERT INTO users(username, pw_hash, is_admin) VALUES(?,?,1)", (name, hash_password(pw)))
+        elif not r:
+            sys.exit(f"No user {name}")
+        else:
+            db.execute("UPDATE users SET pw_hash=? WHERE id=?", (hash_password(pw), r[0]))
+            db.execute("DELETE FROM sessions WHERE user_id=?", (r[0],))
+        db.commit()
+        print(f"{name}\n{pw}")
+    elif cmd == "invite":
+        n = int(args[1]) if len(args) > 1 else 1
+        codes = [new_invite_code() for _ in range(n)]
+        admin = db.execute("SELECT id FROM users WHERE is_admin=1 ORDER BY id").fetchone()
+        db.executemany("INSERT INTO invites(code, created_by) VALUES(?,?)", [(c, admin and admin[0]) for c in codes])
+        db.commit()
+        print("\n".join(codes))
+    else:
+        sys.exit(cli.__doc__)
+    db.close()
 
 
 # ---------------------------------------------------------------- HTTP plumbing
@@ -2290,10 +2765,20 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         if method == "GET" and not u.path.startswith("/api/"):
             return self._static(u.path)
-        for m, rx, fn in ROUTES:
+        for m, rx, fn, access in ROUTES:
             mm = rx.match(u.path)
             if m != method or not mm:
                 continue
+            if method != "GET":  # requests from other sites' pages are refused (sessions are cookies)
+                origin = self.headers.get("Origin")
+                if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host"):
+                    return self._send(403, {"error": "Cross-site request refused"})
+            user = session_user(self.headers.get("Cookie"))
+            if access != "public" and not user:
+                return self._send(401, {"error": "Please sign in", "signin": True})
+            if access == "admin" and not user["is_admin"]:
+                return self._send(403, {"error": "Admins only"})
+            _req.user, _req.cookie, _req.ip = user, None, self.client_address[0]
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             body = {}
             n = int(self.headers.get("Content-Length") or 0)
@@ -2302,10 +2787,10 @@ class Handler(BaseHTTPRequestHandler):
                     body = json.loads(self.rfile.read(n) or b"{}")
                 except ValueError:
                     return self._send(400, {"error": "Bad JSON"})
-            db = connect()
+            db = connect(None if access == "public" else user["id"])
             try:
                 res = fn(db, q, body, *mm.groups())
-                if method != "GET":
+                if method != "GET" and access != "public":
                     stamp_new_items(db)
                 db.commit()
             except ApiError as e:
@@ -2319,7 +2804,7 @@ class Handler(BaseHTTPRequestHandler):
                 db.close()
             if isinstance(res, tuple) and res and res[0] == "raw":
                 return self._send(200, res[1], res[2], res[3])
-            return self._send(200, res)
+            return self._send(200, res, headers=_req.cookie and {"Set-Cookie": _req.cookie})
         self._send(404, {"error": "Not found"})
 
     def do_GET(self):
@@ -2335,28 +2820,42 @@ class Handler(BaseHTTPRequestHandler):
         self._handle("DELETE")
 
 
+def each_user(fn):
+    """Run fn(db) on every user's collection, committing each."""
+    cat = connect()
+    try:
+        uids = user_ids(cat)
+    finally:
+        cat.close()
+    for uid in uids:
+        db = connect(uid)
+        try:
+            fn(db)
+            db.commit()
+        finally:
+            db.close()
+
+
 def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if args:
+        return cli(args)
     init_db()
-    db = connect()
-    if get_meta(db, "backfill_add_price"):
-        backfill_add_prices(db)
-        db.execute("DELETE FROM meta WHERE key='backfill_add_price'")
-        db.commit()
-    db.close()
+
+    def backfill(db):
+        if get_umeta(db, "backfill_add_price"):
+            backfill_add_prices(db)
+            db.execute("DELETE FROM user_meta WHERE key='backfill_add_price'")
+    each_user(backfill)
 
     def bg_prices():
         try:
             refresh_prices()
         except ApiError as e:
             print("Prices:", e.msg)
-        db = connect()
-        try:
-            snapshot(db, force=True)
-            db.commit()
-        finally:
-            db.close()
+        each_user(lambda db: snapshot(db, force=True))
     threading.Thread(target=bg_prices, daemon=True).start()
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://127.0.0.1:{PORT}"
     print(f"Card Library is running at {url}   (press Ctrl+C to stop)")
     print(f"Database: {DB_PATH}")

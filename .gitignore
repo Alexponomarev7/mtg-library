@@ -4,3 +4,6 @@ library.db-shm
 __pycache__/
 .DS_Store
 .claude/
+users/
+library.pre-users.db
+ADMIN_PASSWORD.txt

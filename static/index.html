@@ -26,6 +26,12 @@ header{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px s
 nav{display:flex;flex-wrap:wrap;gap:4px;background:var(--panel2);padding:3px;border-radius:9px;border:1px solid var(--line)}
 .tab{border:0;background:none;padding:6px 14px;border-radius:7px;color:var(--muted);font-weight:600}
 .tab.active{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
+.tab .caret{font-size:10px;opacity:.6;margin-left:2px}
+.subnav{max-width:1280px;margin:0 auto;padding:0 16px;display:flex;gap:2px;flex-wrap:wrap}
+.subnav[hidden]{display:none}
+.subtab{border:0;background:none;padding:8px 12px 9px;color:var(--muted);font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px}
+.subtab:hover{color:var(--ink)}
+.subtab.active{color:var(--ink);border-bottom-color:var(--accent)}
 #stats{margin-left:auto;color:var(--muted);font-size:13px}
 main{max-width:1280px;margin:0 auto;padding:18px 16px 60px}
 .view[hidden]{display:none}
@@ -38,7 +44,7 @@ a.btn{color:inherit;text-decoration:none;display:inline-flex;align-items:center}
 .btn.danger{color:var(--warn)}
 .btn.sm{padding:3px 9px;font-size:13px}
 .icon-btn{border:1px solid var(--line);background:var(--panel);border-radius:7px;width:30px;height:30px;display:inline-grid;place-items:center;font-weight:700}
-input[type=text],input[type=number],input:not([type]),select,textarea{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;outline:none}
+input[type=text],input[type=number],input[type=password],input:not([type]),select,textarea{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;outline:none}
 input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .searchbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .searchbar input.big{flex:1;min-width:220px;font-size:17px;padding:11px 14px}
@@ -297,6 +303,18 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .rec-img img{width:54px;aspect-ratio:63/88;object-fit:cover;border-radius:4px;display:block}
 .prow.rec .bar{display:block;margin:6px 0 2px}
 @media (max-width:700px){.prow.rec{grid-template-columns:46px 1fr 96px}}
+.heart{position:absolute;left:5px;top:calc(100% - 46px);width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:15px;
+  background:rgba(0,0,0,.6);color:#fff;opacity:0;transition:opacity .12s;cursor:pointer}
+.ccard:hover .heart,.heart.on{opacity:1}.heart.on{color:#ff5a7a}
+.deal{display:grid;grid-template-columns:44px 1fr auto 96px auto;gap:12px;align-items:center;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:6px}
+.deal img{width:44px;aspect-ratio:63/88;object-fit:cover;border-radius:3px}
+.deal .src{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.chipx{font-size:11.5px;font-weight:650;padding:1px 7px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.sig{font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--accent-soft);color:var(--ink);white-space:nowrap}
+.deal .sigs{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.deal .save{text-align:right;font-variant-numeric:tabular-nums}
+.deal .save b{font-size:17px;color:var(--accent)}
+@media (max-width:760px){.deal{grid-template-columns:40px 1fr 84px}.deal .sigs,.deal .act{grid-column:2/-1;align-items:flex-start}}
 /* dialogs */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;max-width:min(520px,94vw);width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(10,10,10,.45)}
@@ -321,25 +339,52 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 @media (max-width:520px){.pocket-dlg{grid-template-columns:1fr}}
 .moves li{padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .moves b{display:block}
+/* accounts */
+[hidden]{display:none!important}  /* the hidden attribute wins over display:flex/grid below */
+#auth{min-height:100vh;display:grid;place-items:center;padding:16px}
+.auth-card{width:100%;max-width:360px;padding:24px;display:flex;flex-direction:column;gap:12px}
+.auth-card .logo{justify-content:center;margin-bottom:4px}
+.auth-card label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
+.auth-card .err{color:var(--warn);font-size:13px;min-height:1em}
+.auth-tabs{display:flex;gap:4px;background:var(--panel2);padding:3px;border-radius:9px;border:1px solid var(--line)}
+.auth-tabs button{flex:1}
+.userbtn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:5px 10px;font-weight:600;font-size:13px}
+.acct{display:grid;gap:16px;max-width:760px}
+.acct .panel{padding:16px}
+.acct form{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.acct table{width:100%;border-collapse:collapse;font-size:13.5px}
+.acct td,.acct th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.acct th{color:var(--muted);font-weight:600;font-size:12px}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;letter-spacing:.04em}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:9px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;z-index:100;max-width:90vw}
 #toast.show{opacity:1}#toast.err{background:var(--warn);color:#fff}
 </style>
 </head>
 <body>
+<div id="auth" hidden><form class="panel auth-card" id="auth-form">
+  <div class="logo"><i></i>Card Library</div>
+  <div class="auth-tabs"><button type="button" class="tab active" data-mode="login">Sign in</button><button type="button" class="tab" data-mode="register">Sign up</button></div>
+  <label data-reg hidden>Invite code<input name="invite" autocomplete="off" placeholder="XXXX-XXXX-XXXX"></label>
+  <label>Username<input name="username" autocomplete="username" required></label>
+  <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+  <div class="small muted" data-reg hidden>3–32 letters or digits for the username; at least 10 characters for the password. Sign-up needs an invite code from an admin.</div>
+  <div class="err" id="auth-err"></div>
+  <button class="btn primary" id="auth-go">Sign in</button>
+</form></div>
+<div id="app" hidden>
 <header><div class="hwrap">
   <div class="logo"><i></i>Card Library</div>
   <nav>
     <button class="tab active" data-tab="find">Find</button>
     <button class="tab" data-tab="add">Add cards</button>
-    <button class="tab" data-tab="storage">Binders &amp; boxes</button>
-    <button class="tab" data-tab="collections">Collections</button>
-    <button class="tab" data-tab="decks">Decks</button>
-    <button class="tab" data-tab="market">Market</button>
-    <button class="tab" data-tab="wishlist">Wishlist</button>
+    <button class="tab" data-group="library">Library <span class="caret">▾</span></button>
+    <button class="tab" data-group="shop">Shop <span class="caret">▾</span></button>
     <button class="tab" data-tab="honor">Hall of fame</button>
   </nav>
   <div id="stats"></div>
-</div></header>
+  <button class="userbtn" id="userbtn" title="Account"></button>
+</div>
+<div class="subnav" id="subnav" hidden></div></header>
 
 <main>
   <section id="view-find" class="view">
@@ -406,6 +451,15 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 
   <section id="view-honor" class="view" hidden><div id="honor"></div></section>
 
+  <section id="view-account" class="view" hidden><div id="account" class="acct"></div></section>
+
+  <section id="view-discounts" class="view" hidden>
+    <div class="toolbar"><span class="small muted">Only cards from</span>
+      <select id="dc-min"><option value="0.5">€0.50</option><option value="1" selected>€1</option><option value="2">€2</option><option value="5">€5</option><option value="10">€10</option></select>
+      <button class="btn" id="dc-refresh" style="margin-left:auto" title="Look up every printing of your tracked cards again">Refresh printings</button></div>
+    <div id="discounts"></div>
+  </section>
+
   <section id="view-decks" class="view" hidden>
     <div class="seg" id="deck-view" style="margin-bottom:14px"><button data-v="mine" class="on">My decks</button><button data-v="rec">Recommended</button></div>
     <div id="deck-list-wrap">
@@ -426,6 +480,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 <dialog id="dlg-addset"><form class="dlg" method="dialog" id="addset-form"></form></dialog>
 <dialog id="dlg-deck"><div class="dlg" id="deck-dlg-body"></div></dialog>
 <dialog id="dlg-moves"><div class="dlg" id="moves-body"></div></dialog>
+</div>
 <div id="toast"></div>
 <div id="pimg" hidden><img alt=""><span class="muted small">loading…</span></div>
 
@@ -436,6 +491,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 async function api(path,opts={}){
   const r=await fetch(path,{method:opts.method||'GET',headers:opts.body?{'Content-Type':'application/json'}:{},body:opts.body?JSON.stringify(opts.body):undefined});
   const j=await r.json().catch(()=>({}));
+  if(r.status===401&&j.signin)showAuth();  // the session ended (signed out elsewhere, expired)
   if(!r.ok) throw new Error(j.error||('Error '+r.status));
   return j;
 }
@@ -467,9 +523,16 @@ const dot=c=>`<span class="dot" style="background:${esc(c||'var(--accent)')}"></
 /* ------------------------------------------------------------ tabs & stats */
 // The address keeps where you are (tab, binder page, set, deck), so reloading the page stays there.
 function setHash(h){h='#'+h;if(location.hash!==h)history.replaceState(null,'',h)}
+const GROUPS={library:[['storage','Binders & boxes'],['collections','Collections'],['decks','Decks']],
+  shop:[['market','Market'],['wishlist','Wishlist'],['discounts','Discounts']]};
+const groupOf=t=>Object.keys(GROUPS).find(g=>GROUPS[g].some(([k])=>k===t));
+S.groupLast={};
 function setTab(t){
   S.tab=t;setHash(t);
-  $$('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
+  const g=groupOf(t);if(g)S.groupLast[g]=t;
+  $$('nav .tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t||(!!g&&b.dataset.group===g)));
+  const sub=$('#subnav');sub.hidden=!g;
+  if(g)sub.innerHTML=GROUPS[g].map(([k,v])=>`<button class="subtab ${k===t?'active':''}" data-tab="${k}">${esc(v)}</button>`).join('');
   $$('.view').forEach(v=>v.hidden=v.id!=='view-'+t);
   if(t==='find'){runFind();$('#find-q').focus()}
   if(t==='add')$('#add-q').focus();
@@ -479,8 +542,15 @@ function setTab(t){
   if(t==='market'&&!S.market)loadMarket()
   if(t==='wishlist')loadWishlist()
   if(t==='honor')loadHonor()
+  if(t==='discounts')loadDiscounts()
+  if(t==='account')loadAccount()
 }
-$$('.tab').forEach(b=>b.onclick=()=>{if(b.dataset.tab==='storage'&&S.tab==='storage'){S.cur=null}if(b.dataset.tab==='collections'&&S.tab==='collections'){S.coll=null}if(b.dataset.tab==='decks'&&S.tab==='decks'){S.deck=null}setTab(b.dataset.tab)});
+function openTab(t){  // clicking the tab you're on goes back to its list
+  if(t==='storage'&&S.tab==='storage'){S.cur=null}if(t==='collections'&&S.tab==='collections'){S.coll=null}if(t==='decks'&&S.tab==='decks'){S.deck=null}
+  setTab(t);
+}
+$$('nav .tab').forEach(b=>b.onclick=()=>b.dataset.group?setTab(S.groupLast[b.dataset.group]||GROUPS[b.dataset.group][0][0]):openTab(b.dataset.tab));
+$('#subnav').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(b)openTab(b.dataset.tab)});
 async function loadStats(){
   try{const s=await api('/api/stats'),el=$('#stats');S.prices=s.prices;
     el.innerHTML=`${s.cards} cards · ${s.unique} unique · ${s.storages} places · <b class="money" style="color:var(--ink)">${eur(s.value)}</b>`;
@@ -834,11 +904,13 @@ function openPocket(slot){
   }else{const c=s.expected;
     body.innerHTML=`<div class="pocket-dlg"><img src="${esc(c.image_large||c.image)}" alt="">
       <div><h3>${esc(c.name)}</h3><div class="muted small">${esc(c.set_name||'')} · ${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.rarity||'')}</div>
-      <p>Not in your collection yet.<br><b>${where}</b></p>
+      <p><span id="pk-own">Checking your collection…</span><br><b>${where}</b></p>
+      <div id="pk-else"></div>
       <p class="small"><span class="money">${eur(c.price)}</span> <span class="muted">· foil ${eur(c.price_foil)}</span></p>
       <div class="opts"><label class="chk"><input type="checkbox" id="pk-foil"> Foil</label>
       <label>Condition<select id="pk-cond">${CONDS.map(x=>`<option>${x}</option>`).join('')}</select></label></div></div></div>
       <div class="dlg-foot">${cmBtn(c)}<button class="btn" id="pk-close">Cancel</button><button class="btn primary" id="pk-add">Add to this pocket</button></div>`;
+    elsewhere(c,st,slot,dlg);
     $('#pk-add').onclick=async()=>{try{await api('/api/items',{method:'POST',body:{card_id:c.id,storage_id:st.id,slot,foil:$('#pk-foil').checked,condition:$('#pk-cond').value,lang:S.opt.lang}});dlg.close();toast('Added');loadStats();S.highlight=slot;openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
   }
   $('#pk-close').onclick=()=>dlg.close();
@@ -868,6 +940,24 @@ function bindEdit(it,st,dlg,after=reopen(st)){
     try{const r=await api(`/api/items/${it.id}/edit`,{method:'POST',body:{card_id:sel.value,foil:$('#ed-foil').checked,condition:$('#ed-cond').value,lang:$('#ed-lang').value,qty}});
       dlg.close();toast(qty&&qty<it.qty?`Saved for ${qty} of ${it.qty} copies`:'Saved');showMoves(r.moves);if(st.kind==='binder'&&r.item.slot!=null)S.highlight=r.item.slot;loadStats();after()}
     catch(e){toast(e.message,'err')}};
+}
+// an empty pocket: do you already own this card somewhere else (any printing)? offer to move a copy here
+async function elsewhere(c,st,slot,dlg){
+  let items=[];try{items=(await api('/api/items?q='+encodeURIComponent(c.name))).filter(it=>it.name===c.name)}catch(e){}
+  const own=$('#pk-own'),box=$('#pk-else');if(!own)return;
+  if(!items.length){own.textContent='Not in your collection yet.';return}
+  const n=items.reduce((a,it)=>a+it.qty,0);
+  own.innerHTML=`<b>You own ${n} cop${n===1?'y':'ies'}</b>, just not in this pocket:`;
+  const deckBox=id=>(S.storages||[]).some(x=>x.id===id&&x.deck);
+  box.innerHTML=`<div style="display:grid;gap:6px;margin:4px 0 10px">${items.map(it=>`<div class="box-row" style="grid-template-columns:30px 1fr auto">
+      <img src="${esc(it.image)}" alt="" style="width:30px">
+      <div class="small"><b>${esc(it.location)}</b>${it.qty>1?` · ×${it.qty}`:''}<br><span class="muted">${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}${it.card_id===c.id?' · this printing':' · other printing'}${it.foil?' · foil':''}${deckBox(it.storage_id)?' · in a deck box':''}</span></div>
+      <button class="btn sm ${it.card_id===c.id?'primary':''}" data-mv="${it.id}">Move here</button></div>`).join('')}</div>`;
+  $$('[data-mv]',box).forEach(b=>b.onclick=async()=>{const it=items.find(x=>x.id===+b.dataset.mv);
+    if(deckBox(it.storage_id)&&!confirm(`This copy is in the deck box “${it.storage_name}”. Take it out of the deck box?`))return;
+    try{await api('/api/items/'+it.id,{method:'PUT',body:{storage_id:st.id,slot}});dlg.close();
+      toast(`Moved ${it.qty>1?'one copy ':''}from ${it.storage_name}`);loadStats();S.highlight=slot;openStorage(st.id,S.page)}
+    catch(e){toast(e.message,'err')}});
 }
 const moveCtl=()=>`<div class="other"><select id="mv-to"><option value="">Loading…</option></select><button class="btn" id="mv-go" disabled>Move</button></div>`;
 function bindMove(it,st,dlg,after=reopen(st)){
@@ -1000,9 +1090,10 @@ async function openSet(code){
     const cs=r.cards.filter(c=>(ex||c.main)&&(f==='all'||state(c)===f));
     $('#cgrid').innerHTML=cs.length?cs.map(c=>`<a class="ccard ${c.owned?'':'miss'}" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="${esc(c.name)}${state(c)==='other'?' — you have it in another printing':''} — open on Cardmarket">
       <img src="${esc(c.image)}" alt="" loading="lazy">${c.owned?`<span class="own">×${c.owned}</span>`:c.owned_name?'<span class="own alt">other print</span>':''}${(c.price??c.price_foil)!=null?`<span class="price-chip">${eur(c.price??c.price_foil)}</span>`:''}
-      <span class="cn">#${esc(c.collector_number)} ${esc(c.name)}</span></a>`).join(''):'<div class="empty" style="grid-column:1/-1">Nothing here.</div>'};
+      ${heartHtml(c.id)}<span class="cn">#${esc(c.collector_number)} ${esc(c.name)}</span></a>`).join(''):'<div class="empty" style="grid-column:1/-1">Nothing here.</div>'};
   $$('#cf button').forEach(b=>b.onclick=()=>{f=b.dataset.f;$$('#cf button').forEach(x=>x.classList.toggle('on',x===b));draw()});
   $('#cx').onchange=draw;draw();
+  $('#cgrid').onclick=e=>{const h=e.target.closest('[data-like]');if(h){e.preventDefault();toggleLike(h.dataset.like)}};
 }
 
 const LIMITS=`<div class="lim"><p><b>Not counted, so the real value of a booster is usually higher:</b></p>
@@ -1040,6 +1131,12 @@ const INFO={
   perf:`<p><b>Portfolio performance</b> compares today's price of each card with its price on the day you added it.</p>
     <span class="f">&Delta; = &Sigma;<sub>c</sub> q<sub>c</sub>&middot;(p<sub>c</sub><sup>now</sup> &minus; p<sub>c</sub><sup>added</sup>)</span>
     <p class="w">New cards store today's Cardmarket price when you add them. Adding more copies to a stack averages the prices. Changing a card's printing or finish starts it again at today's price. Cards added before this was recorded use Cardmarket's 1/7/30-day average for the day they were added (marked “est.”). Cards you removed aren't counted.</p>`,
+  deals:`<p><b>How deals are spotted</b> (from Cardmarket's daily price guide, for the printing you track):</p>
+    <span class="f">dip: trend &lt; 0.9 &times; avg<sub>30</sub></span>
+    <span class="f">offer: low &lt; 0.7 &times; trend</span>
+    <span class="f">printing: p<sub>other</sub> &lt; 0.85 &times; p<sub>tracked</sub></span>
+    <span class="f">save &asymp; need &times; max(avg<sub>30</sub>&minus;trend, trend&minus;low, p<sub>tracked</sub>&minus;p<sub>other</sub>)</span>
+    <p class="w">A liked card tracks that exact printing, 1 copy. A Want deck tracks its missing copies (cards you own in any printing don't count as missing), starting from the printing in the deck. “low” is Cardmarket's cheapest offer of any condition and language, so treat it as a lead, not a price. Cards under the minimum price are listed under “No deal right now”.</p>`,
   reprints:`<p><b>Which cards count as owned</b> for “new to you”:</p>
     <span class="f">off: owned(c) &hArr; name(c) &isin; names you own from set(c)</span>
     <span class="f">on: owned(c) &hArr; name(c) &isin; names you own from any set</span>
@@ -1090,7 +1187,7 @@ async function loadDecks(){
   const el=$('#deck-list');let l;
   try{l=await api('/api/decks')}catch(e){el.innerHTML=`<div class="empty" style="grid-column:1/-1">${esc(e.message)}</div>`;return}
   el.innerHTML=l.length?l.map(d=>`<div class="panel deck-card" data-deck="${d.id}">${d.image?`<img src="${esc(d.image)}" alt="">`:'<img alt="">'}
-    <div class="b"><div class="st-name">${esc(d.name)}</div><div class="muted small">${d.physical?'<span class="badge" style="margin-right:4px">📦 own it</span>':''}${esc(d.format||'No format')}${d.source?' · '+esc(d.source):''}</div>
+    <div class="b"><div class="st-name">${esc(d.name)}</div><div class="muted small">${d.want?'<span class="badge" style="margin-right:4px">♥ want</span>':''}${d.physical?'<span class="badge" style="margin-right:4px">📦 own it</span>':''}${esc(d.format||'No format')}${d.source?' · '+esc(d.source):''}</div>
     <div class="small" style="margin-top:8px">${d.stats.cards} cards · <span class="money">${eur(d.stats.value)}</span></div>
     <div class="small"><span class="${d.stats.owned>=d.stats.cards?'have':'muted'}">own ${d.stats.owned}/${d.stats.cards}</span>${d.stats.missing_cost?` <span class="muted">· missing ${eur(d.stats.missing_cost)}</span>`:''}</div>
     <div class="bar"><i style="width:${d.stats.cards?Math.round(100*d.stats.owned/d.stats.cards):0}%"></i></div></div></div>`).join('')
@@ -1192,6 +1289,7 @@ function renderDeck(d){
   el.innerHTML=`<div class="detail-head"><button class="btn" id="dk-back">← All decks</button>
       <div style="flex:1;min-width:200px"><h2>${esc(d.name)}</h2><div class="muted small">${esc(d.format||'No format')}${d.source?' · from '+esc(d.source):''}</div></div>
       ${d.physical?`<button class="btn" id="dk-box">Open deck box</button><button class="btn" id="dk-unown">Don’t own it</button>`:`<button class="btn primary" id="dk-own">I own this deck</button>`}
+      <button class="btn ${d.want?'primary':''}" id="dk-want" title="Track this deck's missing cards in Discounts">${d.want?'♥ Wanted':'♡ Want'}</button>
       <button class="btn" id="dk-edit">Edit</button><button class="btn" id="dk-import">Paste list</button><button class="btn" id="dk-export">Copy list</button><button class="btn danger" id="dk-del">Delete</button></div>
     <div class="tiles">${tile('Cards',st.cards,st.cards!==st.main?`${st.main} + ${st.cards-st.main} sideboard`:'')}${tile('Value',eur(st.value),'Cardmarket trend')}
       ${d.physical?tile('In its box',`${st.in_box} / ${st.cards}`,st.in_box<st.cards?'some cards are elsewhere':'complete'):tile('You own',`${st.owned} / ${st.cards}`,'any printing, any set')}${tile('Missing',eur(st.missing_cost),`${st.cards-st.owned} card${st.cards-st.owned===1?'':'s'} to buy`)}</div>
@@ -1208,6 +1306,7 @@ function renderDeck(d){
     :'<div class="empty">This deck is empty. Add cards above, or paste a list.</div>'}
     <p class="muted small">${d.physical?'You own this deck: its cards are in the deck box “'+esc(d.name)+'”, and changing the list here adds or takes cards out of that box. Hover a card to see where your copies are.':'“Owned” counts copies of a card in any printing anywhere in your collection; hover it to see where they are.'}</p>`;
   $('#dk-back').onclick=loadDecks;
+  $('#dk-want').onclick=()=>call(api('/api/decks/'+d.id,{method:'PUT',body:{want:!d.want}}),d.want?'No longer tracking this deck':'Tracking its missing cards in Discounts');
   if(d.physical){
     $('#dk-box').onclick=()=>{S.cur={id:d.storage_id};S.page=1;setTab('storage')};
     $('#dk-unown').onclick=()=>{const b=deckDialog(`<h3>You don’t own ${esc(d.name)} any more?</h3>
@@ -1520,9 +1619,114 @@ function drawValueChart(hist){
 }
 window.addEventListener('resize',debounce(()=>{if(S.tab==='honor')loadHonor()},250));
 
+/* ------------------------------------------------------------ likes & discounts */
+S.liked=new Set();
+api('/api/liked').then(l=>{S.liked=new Set(l);$$('[data-like]').forEach(h=>{const on=S.liked.has(h.dataset.like);h.classList.toggle('on',on);h.textContent=on?'♥':'♡'})}).catch(()=>{});
+const heartHtml=id=>{const on=S.liked.has(id);return `<span class="heart ${on?'on':''}" data-like="${esc(id)}" role="button" title="${on?'Stop tracking':'Like: track this printing in Discounts'}">${on?'♥':'♡'}</span>`};
+async function toggleLike(id){
+  const on=S.liked.has(id);
+  try{await api(on?'/api/liked/'+id:'/api/liked',{method:on?'DELETE':'POST',body:on?undefined:{card_id:id}});
+    on?S.liked.delete(id):S.liked.add(id);
+    $$(`[data-like="${id}"]`).forEach(h=>{h.classList.toggle('on',!on);h.textContent=on?'♡':'♥';h.title=on?'Like: track this printing in Discounts':'Stop tracking'});
+    toast(on?'No longer tracked':'Liked: tracked in Discounts')}catch(e){toast(e.message,'err')}
+}
+$('#dc-min').onchange=()=>loadDiscounts();
+$('#dc-refresh').onclick=()=>loadDiscounts(true);
+async function loadDiscounts(refresh){
+  const el=$('#discounts'),min=$('#dc-min').value;
+  let r;
+  try{
+    r=await api('/api/discounts?min='+min);
+    if(refresh||r.prints_missing){el.innerHTML=`<div class="empty">Looking up every printing of ${r.prints_missing||r.tracked} tracked card${(r.prints_missing||r.tracked)===1?'':'s'} on Scryfall…</div>`;
+      r=await api('/api/discounts/refresh?min='+min,{method:'POST',body:{force:!!refresh}})}
+  }catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  if(!r.tracked){el.innerHTML=`<div class="empty">Nothing tracked yet.<br>Mark a deck as <b>♡ Want</b> in Decks to track its missing cards, or like single cards with <b>♡</b> on a set's card grid in Collections.</div>`;return}
+  const src=x=>x.sources.map(s=>s.kind==='liked'?'<span class="chipx">♥ liked</span>':`<span class="chipx">${esc(s.deck)} · need ${s.need}</span>`).join('');
+  const sig=(s,x)=>s.kind==='dip'?`<span class="sig" title="Trend ${eur(x.ref_card.trend)} vs 30-day average ${eur(s.avg30)}">▼ ${s.pct}% under its 30-day avg</span>`
+    :s.kind==='offer'?`<span class="sig" title="Cheapest offer ${eur(s.low)} vs trend ${eur(x.ref_card.trend)} — check condition, language and shipping">offer ${eur(s.low)} · ${s.pct}% under trend</span>`
+    :`<span class="sig" title="${esc(s.card.set_name||'')}">${esc(s.card.set_code.toUpperCase())} #${esc(s.card.collector_number)} ${eur(s.card.price)} · ${s.pct}% cheaper</span>`;
+  const row=x=>{const c=x.ref_card,pr=x.signals.find(s=>s.kind==='printing'),link=pr?pr.card:c;
+    return `<div class="deal" ${c&&(c.image_large||c.image)?`data-img="${esc(c.image_large||c.image)}"`:''}>${c?`<img src="${esc(c.image)}" alt="" loading="lazy">`:'<span></span>'}
+      <div><b>${esc(x.name)}</b> <span class="muted small">${c?`${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${eur(c.price)}`:''}</span><div class="src">${src(x)}</div></div>
+      <div class="sigs">${x.signals.map(s=>sig(s,x)).join('')||'<span class="muted small">no deal right now</span>'}</div>
+      <div class="save">${x.saving?`<span class="muted small">save ≈</span><br><b>${eur(x.saving)}</b>`:''}</div>
+      <div class="act">${link?`<a class="btn sm" href="${esc(cmUrl(link))}" target="_blank" rel="noopener">Cardmarket ↗</a>`:''}</div></div>`};
+  el.innerHTML=`<div class="muted small" style="margin-bottom:10px">Tracking <b>${r.tracked}</b> card${r.tracked===1?'':'s'}: ${r.liked} liked${r.want_decks.length?` · missing cards of ${r.want_decks.map(d=>`<a href="#decks/${d.id}" style="color:var(--ink)">${esc(d.name)}</a>`).join(', ')}`:''} ${info(INFO.deals)}</div>
+    ${r.deals.length?r.deals.map(row).join(''):`<div class="empty">No deals among your tracked cards from ${eur(r.min)} right now.</div>`}
+    ${r.quiet.length?`<details style="margin-top:14px"><summary class="small muted" style="cursor:pointer">No deal right now (${r.quiet.length})</summary><div style="margin-top:8px">${r.quiet.map(row).join('')}</div></details>`:''}
+    <p class="muted small">Prices from Cardmarket's daily price guide (${esc((r.prices.date||'').slice(0,10))}). A signal means “worth a look”: check the actual offers, their condition, language and shipping on Cardmarket.</p>`;
+}
+
+/* ------------------------------------------------------------ accounts */
+// Signed out, only the sign-in / sign-up card shows. An invite link (#register?code=…) opens sign-up with the code filled in.
+let authMode='login';
+function authSet(mode){
+  authMode=mode;const f=$('#auth-form');
+  $$('.auth-tabs .tab').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
+  $$('[data-reg]',f).forEach(x=>x.hidden=mode!=='register');
+  f.invite.required=mode==='register';
+  f.password.autocomplete=mode==='register'?'new-password':'current-password';
+  $('#auth-go').textContent=mode==='register'?'Create account':'Sign in';$('#auth-err').textContent='';
+}
+function showAuth(){
+  S.user=null;$('#app').hidden=true;$('#auth').hidden=false;
+  const [p,q]=location.hash.slice(1).split('?');
+  if(p==='register'){authSet('register');$('#auth-form').invite.value=new URLSearchParams(q||'').get('code')||''}
+  $('#auth-form').username.focus();
+}
+$$('.auth-tabs .tab').forEach(b=>b.onclick=()=>authSet(b.dataset.mode));
+$('#auth-form').onsubmit=async e=>{
+  e.preventDefault();const f=e.target,go=$('#auth-go');go.disabled=true;
+  try{const r=await api('/api/'+authMode,{method:'POST',body:{invite:f.invite.value,username:f.username.value,password:f.password.value}});
+    f.password.value='';if(location.hash.startsWith('#register'))history.replaceState(null,'','#find');startApp(r.user)}
+  catch(err){$('#auth-err').textContent=err.message}
+  finally{go.disabled=false}
+};
+function startApp(user){
+  S.user=user;$('#auth').hidden=true;$('#app').hidden=false;
+  $('#userbtn').textContent=user.username+(user.is_admin?' ★':'');
+  loadStats();
+  api('/api/storages').then(l=>S.storages=l).catch(()=>{});
+  route();
+}
+$('#userbtn').onclick=()=>setTab('account');
+
+async function loadAccount(){
+  const el=$('#account'),u=S.user;
+  el.innerHTML=`<div class="panel"><h2>${esc(u.username)}</h2><div class="muted small">${u.is_admin?'Admin · ':''}Your binders, decks, wishlist and history are yours alone; card data and prices are shared.</div>
+      <div style="margin-top:12px"><button class="btn" id="acct-out">Sign out</button></div></div>
+    <div class="panel"><h3 style="margin:0 0 10px">Change password</h3><form id="pw-form">
+      <input type="password" name="old" placeholder="Current password" autocomplete="current-password" required>
+      <input type="password" name="new" placeholder="New password (10+ characters)" autocomplete="new-password" minlength="10" required>
+      <button class="btn primary">Change</button></form></div>
+    ${u.is_admin?'<div class="panel" id="acct-invites"></div><div class="panel" id="acct-users"></div>':''}`;
+  $('#acct-out').onclick=async()=>{await api('/api/logout',{method:'POST'}).catch(()=>{});location.hash='';location.reload()};
+  $('#pw-form').onsubmit=async e=>{e.preventDefault();const f=e.target;
+    try{await api('/api/account/password',{method:'POST',body:{old:f.old.value,new:f.new.value}});f.reset();toast('Password changed; other devices were signed out')}
+    catch(err){toast(err.message,'err')}};
+  if(u.is_admin){loadInvites();loadUsers()}
+}
+const inviteLink=c=>`${location.origin}/#register?code=${encodeURIComponent(c)}`;
+async function loadInvites(){
+  const el=$('#acct-invites'),l=await api('/api/admin/invites'),open=l.filter(x=>!x.used_at),used=l.filter(x=>x.used_at);
+  el.innerHTML=`<h3 style="margin:0 0 4px">Invite codes</h3><div class="muted small" style="margin-bottom:10px">Each code signs up one person, once. Send the code or its link.</div>
+    <form id="inv-form"><input type="number" name="n" value="1" min="1" max="50" style="width:72px"><button class="btn primary">Create codes</button></form>
+    ${open.length?`<table style="margin-top:10px"><tr><th>Unused code</th><th>Created</th><th></th></tr>${open.map(x=>`<tr><td class="code">${esc(x.code)}</td><td class="muted">${esc(x.created_at.slice(0,10))}</td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn sm" data-copy="${esc(x.code)}">Copy link</button> <button class="btn sm danger" data-del="${esc(x.code)}">Delete</button></td></tr>`).join('')}</table>`:'<div class="empty" style="margin-top:10px">No unused codes.</div>'}
+    ${used.length?`<details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Used (${used.length})</summary><table>${used.map(x=>`<tr><td class="code muted">${esc(x.code)}</td><td>${esc(x.used_by||'—')}</td><td class="muted">${esc(x.used_at.slice(0,10))}</td></tr>`).join('')}</table></details>`:''}`;
+  $('#inv-form').onsubmit=async e=>{e.preventDefault();
+    try{await api('/api/admin/invites',{method:'POST',body:{count:+e.target.n.value}});loadInvites()}catch(err){toast(err.message,'err')}};
+  $$('[data-copy]',el).forEach(b=>b.onclick=async()=>{
+    try{await navigator.clipboard.writeText(inviteLink(b.dataset.copy));toast('Invite link copied')}catch(e){prompt('Invite link',inviteLink(b.dataset.copy))}});
+  $$('[data-del]',el).forEach(b=>b.onclick=async()=>{await api('/api/admin/invites/'+encodeURIComponent(b.dataset.del),{method:'DELETE'});loadInvites()});
+}
+async function loadUsers(){
+  const l=await api('/api/admin/users');
+  $('#acct-users').innerHTML=`<h3 style="margin:0 0 10px">Users (${l.length})</h3><table><tr><th>Username</th><th>Joined</th><th>Cards</th></tr>
+    ${l.map(x=>`<tr><td>${esc(x.username)}${x.is_admin?' <span class="muted small">admin</span>':''}</td><td class="muted">${esc(x.created_at.slice(0,10))}</td><td>${x.cards}</td></tr>`).join('')}</table>`;
+}
+
 /* ------------------------------------------------------------ boot */
-loadStats();
-api('/api/storages').then(l=>S.storages=l).catch(()=>{});
 function route(){
   const [path,query]=location.hash.slice(1).split('?'),[t,a,b]=path.split('/').map(decodeURIComponent);
   const q=new URLSearchParams(query||'');
@@ -1534,10 +1738,10 @@ function route(){
   if(t==='storage'&&!a)S.cur=null;
   if(t==='collections'&&!a)S.coll=null;
   if(t==='decks'&&!a){S.deck=null;S.deckView='mine'}
-  setTab(['find','add','storage','collections','decks','market','wishlist','honor'].includes(t)?t:'find');
+  setTab(['find','add','storage','collections','decks','market','wishlist','honor','discounts','account'].includes(t)?t:'find');
 }
-window.addEventListener('hashchange',route);  // a pasted link or Back; our own updates use replaceState
-route();
+window.addEventListener('hashchange',()=>{if(S.user)route();else showAuth()});  // a pasted link or Back; our own updates use replaceState
+api('/api/me').then(r=>r.user?startApp(r.user):showAuth()).catch(()=>showAuth());
 </script>
 </body>
 </html>
