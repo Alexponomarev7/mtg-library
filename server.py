@@ -39,8 +39,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("CARDLIB_DB", os.path.join(HERE, "library.db"))
 USERS_DIR = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "users")  # one database per user
-PORT = int(os.environ.get("CARDLIB_PORT", "8765"))
-HOST = os.environ.get("CARDLIB_HOST", "127.0.0.1")  # 0.0.0.0 to let other computers in
+# hosts like Render set PORT and expect the app on all interfaces
+PORT = int(os.environ.get("CARDLIB_PORT") or os.environ.get("PORT") or "8765")
+HOST = os.environ.get("CARDLIB_HOST") or ("0.0.0.0" if os.environ.get("PORT") else "127.0.0.1")
 STATIC = os.path.join(HERE, "static")
 SCRYFALL = "https://api.scryfall.com"
 # Cardmarket's public daily price guide for Magic (all products, trend/avg/low, foil and non-foil)
@@ -2551,7 +2552,8 @@ def token_hash(tok):
 def start_session(db, uid):
     tok = secrets.token_urlsafe(32)
     db.execute("INSERT INTO sessions VALUES(?,?,?,?)", (token_hash(tok), uid, time.time(), time.time()))
-    _req.cookie = f"{SESSION_COOKIE}={tok}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_DAYS * 86400}"
+    _req.cookie = (f"{SESSION_COOKIE}={tok}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_DAYS * 86400}"
+                   + ("; Secure" if _req.https else ""))
 
 
 def session_user(cookie_header):
@@ -2778,7 +2780,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, {"error": "Please sign in", "signin": True})
             if access == "admin" and not user["is_admin"]:
                 return self._send(403, {"error": "Admins only"})
-            _req.user, _req.cookie, _req.ip = user, None, self.client_address[0]
+            # behind a hosting proxy the client's address and https come in forwarded headers
+            fwd = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+            _req.user, _req.cookie, _req.ip = user, None, fwd or self.client_address[0]
+            _req.https = self.headers.get("X-Forwarded-Proto") == "https"
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             body = {}
             n = int(self.headers.get("Content-Length") or 0)
@@ -2820,6 +2825,24 @@ class Handler(BaseHTTPRequestHandler):
         self._handle("DELETE")
 
 
+def bootstrap_admin():
+    """On a host without a shell (Render's free plan): the first start creates the admin from CARDLIB_ADMIN and
+    CARDLIB_ADMIN_PASSWORD. Does nothing once any user exists."""
+    name, pw = os.environ.get("CARDLIB_ADMIN"), os.environ.get("CARDLIB_ADMIN_PASSWORD")
+    db = connect()
+    try:
+        if name and pw and not db.execute("SELECT 1 FROM users").fetchone():
+            if not USERNAME_RX.match(name) or len(pw) < 10:
+                sys.exit("CARDLIB_ADMIN: 3-32 letters/digits; CARDLIB_ADMIN_PASSWORD: at least 10 characters")
+            uid = db.execute("INSERT INTO users(username, pw_hash, is_admin) VALUES(?,?,1)",
+                             (name, hash_password(pw))).lastrowid
+            db.commit()
+            init_user_db(uid)
+            print(f"Created admin {name}")
+    finally:
+        db.close()
+
+
 def each_user(fn):
     """Run fn(db) on every user's collection, committing each."""
     cat = connect()
@@ -2841,6 +2864,7 @@ def main():
     if args:
         return cli(args)
     init_db()
+    bootstrap_admin()
 
     def backfill(db):
         if get_umeta(db, "backfill_add_price"):
