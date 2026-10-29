@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wishlist</title>
+<style>
+:root{
+  --bg:#f3f0e8;--panel:#fffdf8;--panel2:#f8f5ee;--ink:#1d1b18;--muted:#6f6a60;--line:#e1dacb;
+  --accent:#2e6b5b;--accent-soft:#dcebe5;--accent-ink:#fff;--gold:#a5832a;
+  --shadow:0 1px 2px rgba(30,25,15,.06),0 10px 28px rgba(30,25,15,.08);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141619;--panel:#1d2024;--panel2:#23272c;--ink:#ebe7de;--muted:#9b968c;--line:#31353b;
+  --accent:#5ab69a;--accent-soft:#1f3a32;--accent-ink:#0d1411;--gold:#d8b45a;--shadow:none;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:inherit}
+.wrap{max-width:980px;margin:0 auto;padding:40px 16px 64px}
+.hero{position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:36px 32px;box-shadow:var(--shadow)}
+.hero::after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;
+  background:radial-gradient(circle,var(--accent-soft) 0,transparent 70%);pointer-events:none}
+.mark{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.mark i{display:inline-block;width:11px;height:15px;border-radius:2px;background:var(--accent);box-shadow:3px -2px 0 -1px var(--panel),3px -2px 0 0 var(--accent)}
+h1{font:700 clamp(30px,5vw,46px)/1.1 ui-serif,Georgia,"Times New Roman",serif;margin:14px 0 12px;letter-spacing:-.01em}
+.greet{white-space:pre-line;font-size:18px;max-width:640px;margin:0;color:var(--ink)}
+.meta{margin-top:16px;color:var(--muted);font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;margin-top:28px}
+.gift{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);transition:transform .15s}
+.gift:hover{transform:translateY(-3px)}
+.ph{position:relative;aspect-ratio:1;background:#fff;display:grid;place-items:center;border-bottom:1px solid var(--line)}
+.ph img{position:absolute;inset:7%;width:86%;height:86%;object-fit:contain}
+.ph span{font-size:44px;opacity:.35}
+.body{padding:14px 14px 16px;display:flex;flex-direction:column;gap:6px;flex:1}
+.cat{font-size:12px;color:var(--muted);font-weight:600}
+.nm{font-weight:700;line-height:1.3}
+.foot{margin-top:auto;padding-top:8px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.price{font-weight:750;font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.buy{font-size:13px;font-weight:600;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:6px 10px;white-space:nowrap}
+.buy:hover{border-color:var(--accent);color:var(--accent)}
+h2{font:700 22px/1.2 ui-serif,Georgia,"Times New Roman",serif;margin:36px 0 0}
+.ph.card{aspect-ratio:auto;background:var(--panel2);padding:12px}
+.ph.card img{position:static;width:100%;height:auto;border-radius:4.5% / 3.3%;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.grid{margin-top:16px}
+.sub{margin:4px 0 0;color:var(--muted);font-size:14px}.sub+.grid{margin-top:14px}
+.need{font-size:13px;color:var(--muted);font-weight:600}
+.note{margin-top:28px;color:var(--muted);font-size:13px;text-align:center}
+.empty{margin-top:28px;padding:36px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
+@media (max-width:520px){.hero{padding:26px 20px}.greet{font-size:16px}.grid{grid-template-columns:1fr 1fr;gap:10px}
+  .body{padding:10px 10px 12px}.nm{font-size:14px}.price{font-size:15px}.buy{width:100%;text-align:center;padding:6px}}
+</style>
+</head>
+<body>
+<div class="wrap" id="page"><div class="empty">Loading…</div></div>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const CAT={booster_box:'Booster box',booster_pack:'Booster',bundle:'Bundle',deck:'Precon deck',multiple_decks:'Decks',
+  limited_aid_tool:'Prerelease kit',box_set:'Box set',deck_box:'Deck display',land_station:'Land station',starter_kit:'Starter kit'};
+const eur=v=>v==null?'':'≈ €'+Number(v).toFixed(2);
+const cm=p=>p.cardmarket_id?`https://www.cardmarket.com/en/Magic/Products?idProduct=${p.cardmarket_id}`
+  :`https://www.cardmarket.com/en/Magic/Products/Search?searchString=${encodeURIComponent(p.name)}`;
+const byPrice=l=>l.slice().sort((a,b)=>(a.price??1e9)-(b.price??1e9));
+const gift=(p,photo,cat)=>`<article class="gift">${photo}
+  <div class="body"><div class="cat">${cat}</div><div class="nm">${esc(p.name)}</div>
+    <div class="foot"><span class="price">${p.need>1?`<span class="need">${p.need} ×</span> `:''}${eur(p.price)}</span><a class="buy" href="${esc(cm(p))}" target="_blank" rel="noopener">Where to buy ↗</a></div></div></article>`;
+(async()=>{
+  const el=document.getElementById('page'),user=decodeURIComponent(location.pathname.split('/')[2]||'');
+  let r;
+  try{const res=await fetch('/api/public/'+encodeURIComponent(user));if(!res.ok)throw 0;r=await res.json()}
+  catch(e){el.innerHTML='<div class="empty">There is no page here, or its owner has hidden it for now.</div>';return}
+  document.title=`${r.name}'s wishlist`;
+  const items=byPrice(r.items),cards=byPrice(r.cards||[]),decks=r.decks||[];
+  const n=items.length+cards.length+decks.reduce((a,d)=>a+d.cards.length,0);
+  const cardTile=c=>gift(c,`<div class="ph card">${c.image?`<img src="${esc(c.image)}" alt="" loading="lazy" ${fallback}>`:'<span>🃏</span>'}</div>`,
+    `${esc(c.set_name||c.set_code.toUpperCase())} · #${esc(c.collector_number)}`);
+  const fallback=`onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🎁'}))"`;
+  el.innerHTML=`<section class="hero"><div class="mark"><i></i>Magic: The Gathering wishlist</div>
+      <h1>${esc(r.name)}</h1><p class="greet">${esc(r.greeting)}</p>
+      ${n?`<div class="meta">${n} gift idea${n===1?'':'s'} · cheapest first</div>`:''}</section>
+    ${cards.length?`<h2>Single cards</h2><div class="grid">${cards.map(cardTile).join('')}</div>`:''}
+    ${decks.map(d=>{const total=d.cards.reduce((a,c)=>a+(c.price||0)*c.need,0);
+      return `<h2>For my deck “${esc(d.name)}”</h2><p class="sub">${d.cards.reduce((a,c)=>a+c.need,0)} cards still missing${total?` · about ${eur(total).slice(2)} in total`:''}</p>
+      <div class="grid">${byPrice(d.cards).map(cardTile).join('')}</div>`}).join('')}
+    ${items.length?`<h2>Sealed products</h2><div class="grid">${items.map(p=>gift(p,
+        `<div class="ph">${p.image?`<img src="${esc(p.image)}" alt="" loading="lazy" ${fallback}>`:'<span>🎁</span>'}</div>`,
+        `${esc(CAT[p.category]||'Product')} · ${esc(p.set_name)}`)).join('')}</div>`:''}
+    ${n?`<p class="note">Prices are a rough guide from Cardmarket${r.prices.date?` as of ${esc(r.prices.date.slice(0,10))}`:''}; shops may differ. Thank you! ♥</p>`
+      :'<div class="empty">The list is empty for now. Check back later!</div>'}`;
+})();
+</script>
+</body>
+</html>

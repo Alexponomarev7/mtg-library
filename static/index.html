@@ -249,6 +249,13 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .star{display:inline-grid;place-items:center;width:22px;height:22px;margin:-2px 6px 0 -4px;vertical-align:middle;border-radius:6px;font-size:17px;line-height:1;color:var(--muted);cursor:pointer}
 .star:hover{background:var(--panel2);color:#d9a521}
 .star.on{color:#e0aa1c}
+.pub{padding:14px 16px;margin-bottom:14px;display:grid;gap:10px}
+.pub textarea{width:100%;min-height:64px;resize:vertical}
+.pub .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pub .link{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 9px;overflow-wrap:anywhere}
+#owntip{position:fixed;z-index:50;pointer-events:none;max-width:300px;padding:8px 10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,.3);font-size:12.5px;line-height:1.4}
+#owntip div+div{margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
+.ccard .own[data-own]{cursor:help}
 #pimg{position:fixed;z-index:50;pointer-events:none;width:220px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,.3);text-align:center}
 #pimg img{width:100%;border-radius:6px;display:block;background:#fff}
 .plist li[data-img]{cursor:default}.plist li[data-img]:hover{background:var(--panel)}
@@ -446,6 +453,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 
   <section id="view-wishlist" class="view" hidden>
     <div class="toolbar"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="wl-rp"> Count reprints I own from other sets as not new</label></div>
+    <div id="pubpage"></div>
     <div id="wishlist"></div>
   </section>
 
@@ -482,6 +490,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 <dialog id="dlg-moves"><div class="dlg" id="moves-body"></div></dialog>
 </div>
 <div id="toast"></div>
+<div id="owntip" hidden></div>
 <div id="pimg" hidden><img alt=""><span class="muted small">loading…</span></div>
 
 <script>
@@ -1036,6 +1045,7 @@ function verdict(ev,price){
   return r>=1?`<span class="verdict good">Worth it · ${Math.round(r*100)}%</span>`:r>=.75?`<span class="verdict meh">Borderline · ${Math.round(r*100)}%</span>`:`<span class="verdict bad">Buy singles · ${Math.round(r*100)}%</span>`;
 }
 async function openSet(code){
+  for(const k in ownCache)delete ownCache[k];  // copies may have moved since the last visit
   if(S.coll!==code)S.collView=null;
   S.coll=code;$('#coll-list-wrap').hidden=true;const d=$('#coll-detail');d.hidden=false;
   setHash(`collections/${code}${S.collView==='products'?'/products':''}`);
@@ -1089,12 +1099,28 @@ async function openSet(code){
     const state=c=>c.owned?'owned':c.owned_name?'other':'missing';
     const cs=r.cards.filter(c=>(ex||c.main)&&(f==='all'||state(c)===f));
     $('#cgrid').innerHTML=cs.length?cs.map(c=>`<a class="ccard ${c.owned?'':'miss'}" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="${esc(c.name)}${state(c)==='other'?' — you have it in another printing':''} — open on Cardmarket">
-      <img src="${esc(c.image)}" alt="" loading="lazy">${c.owned?`<span class="own">×${c.owned}</span>`:c.owned_name?'<span class="own alt">other print</span>':''}${(c.price??c.price_foil)!=null?`<span class="price-chip">${eur(c.price??c.price_foil)}</span>`:''}
+      <img src="${esc(c.image)}" alt="" loading="lazy">${c.owned?`<span class="own" title="" data-own="${esc(c.id)}" data-name="${esc(c.name)}">×${c.owned}</span>`:c.owned_name?`<span class="own alt" title="" data-own="" data-name="${esc(c.name)}">other print</span>`:''}${(c.price??c.price_foil)!=null?`<span class="price-chip">${eur(c.price??c.price_foil)}</span>`:''}
       ${heartHtml(c.id)}<span class="cn">#${esc(c.collector_number)} ${esc(c.name)}</span></a>`).join(''):'<div class="empty" style="grid-column:1/-1">Nothing here.</div>'};
   $$('#cf button').forEach(b=>b.onclick=()=>{f=b.dataset.f;$$('#cf button').forEach(x=>x.classList.toggle('on',x===b));draw()});
   $('#cx').onchange=draw;draw();
   $('#cgrid').onclick=e=>{const h=e.target.closest('[data-like]');if(h){e.preventDefault();toggleLike(h.dataset.like)}};
 }
+
+// Hovering a ×N badge in a set's card grid lists where those copies are; "other print" lists the other printings.
+const ownCache={};
+async function showOwn(b){
+  const tip=$('#owntip'),id=b.dataset.own,name=b.dataset.name,r=b.getBoundingClientRect();
+  tip.style.left=Math.min(r.left,innerWidth-310)+'px';tip.style.top=(r.bottom+6)+'px';
+  tip.innerHTML='<span class="muted">loading…</span>';tip.hidden=false;S.ownHover=b;
+  let items;try{items=ownCache[name]||(ownCache[name]=await api('/api/items?q='+encodeURIComponent(name)))}catch(e){tip.hidden=true;return}
+  if(S.ownHover!==b)return;
+  items=items.filter(it=>it.name===name&&(!id||it.card_id===id));
+  const n=items.reduce((a,it)=>a+it.qty,0);
+  tip.innerHTML=`<b>${n} cop${n===1?'y':'ies'}${id?'':' in other printings'}</b>`+items.map(it=>`<div><b>${esc(it.location)}</b>${it.qty>1?` · ×${it.qty}`:''}${it.foil?' · <span class="badge foil">F</span>':''}
+    <br><span class="muted">${id?'':`${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)} · `}${esc(it.condition)} · ${esc(langName(it.lang))}</span></div>`).join('');
+}
+document.addEventListener('mouseover',e=>{const b=e.target.closest('.ccard .own[data-own]');
+  if(b&&b!==S.ownHover)showOwn(b);else if(!b&&S.ownHover){S.ownHover=null;$('#owntip').hidden=true}});
 
 const LIMITS=`<div class="lim"><p><b>Not counted, so the real value of a booster is usually higher:</b></p>
     <ul><li>showcase, borderless and extended-art versions that can land in the rare, wildcard and foil slots (for sets like The Hobbit this is most of the value)</li>
@@ -1474,7 +1500,25 @@ async function toggleStar(p,root,el){
   }catch(e){toast(e.message,'err')}
 }
 $('#wl-rp').onchange=e=>{S.reprints=e.target.checked;S.market=null;loadWishlist()};
+// The public page: a landing at /u/<username> showing only the starred products, for people choosing a gift.
+async function loadPubPage(){
+  const el=$('#pubpage');let p;try{p=await api('/api/public-page')}catch(e){return}
+  const url=`${location.origin}/u/${encodeURIComponent(p.username)}`;
+  el.innerHTML=`<div class="panel pub"><label class="row" style="font-weight:600"><input type="checkbox" id="pub-on" ${p.enabled?'checked':''}> Public gift page from this wishlist</label>
+    <div class="row muted small">Anyone with the link sees your starred products and the single cards you liked (♡ in Collections), with photos, prices and where to buy - nothing else from your collection.</div>
+    <div ${p.enabled?'':'hidden'} id="pub-more" style="display:grid;gap:10px">
+      <div class="row"><span class="link">${esc(url)}</span><button class="btn sm" id="pub-copy">Copy link</button><a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">Open ↗</a></div>
+      <input id="pub-name" placeholder="Name on the page (default: ${esc(p.username)})" value="${esc(p.name)}" maxlength="60">
+      <textarea id="pub-greet" maxlength="1000">${esc(p.greeting)}</textarea>
+      <div class="row"><button class="btn primary sm" id="pub-save">Save text</button></div></div></div>`;
+  const save=async()=>{try{await api('/api/public-page',{method:'PUT',body:{enabled:$('#pub-on').checked,name:$('#pub-name').value,greeting:$('#pub-greet').value}});return true}
+    catch(e){toast(e.message,'err')}};
+  $('#pub-on').onchange=async()=>{if(await save()){$('#pub-more').hidden=!$('#pub-on').checked;toast($('#pub-on').checked?'Your gift page is public':'Your gift page is hidden')}};
+  $('#pub-save').onclick=async()=>{if(await save())toast('Saved')};
+  $('#pub-copy').onclick=async()=>{try{await navigator.clipboard.writeText(url);toast('Link copied')}catch(e){prompt('Link',url)}};
+}
 async function loadWishlist(){
+  loadPubPage();
   const el=$('#wishlist'),reprints=!!S.reprints,run=(S.wlRun||0)+1;S.wlRun=run;$('#wl-rp').checked=reprints;
   let wl;try{wl=await api('/api/wishlist')}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
   S.wish=new Set(wl.map(x=>x.uuid));

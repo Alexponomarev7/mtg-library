@@ -2073,6 +2073,86 @@ def r_wishlist_delete(db, q, b, uuid):
     return r_wishlist(db, q, b)
 
 
+# ---------------------------------------------------------------- public wishlist page (/u/<username>)
+
+DEFAULT_GREETING = ("Hi! I play Magic: The Gathering. If you'd like to give me a present, "
+                    "I'd be absolutely thrilled with any of these:")
+OLD_GREETINGS = ("Привет! Я играю в Magic: The Gathering. Если вы хотите мне что-то подарить, "
+                 "я буду безумно рад любому из этих подарков:",)  # earlier defaults, saved unchanged
+
+
+def public_settings(db):
+    greeting = get_umeta(db, "public_greeting")
+    return {"enabled": get_umeta(db, "public_wishlist") == "1",
+            "greeting": DEFAULT_GREETING if not greeting or greeting in OLD_GREETINGS else greeting,
+            "name": get_umeta(db, "public_name") or ""}
+
+
+@route("GET", "/api/public-page")
+def r_public_page(db, q, b):
+    return {**public_settings(db), "username": _req.user["username"]}
+
+
+@route("PUT", "/api/public-page")
+def r_public_page_save(db, q, b):
+    vals = {"public_wishlist": "1" if b.get("enabled") else "0",
+            "public_greeting": str(b.get("greeting") or "").strip()[:1000],
+            "public_name": str(b.get("name") or "").strip()[:60]}
+    db.executemany("INSERT OR REPLACE INTO user_meta VALUES(?,?)", vals.items())
+    return r_public_page(db, q, b)
+
+
+@route("GET", r"/api/public/([A-Za-z0-9_.-]{3,32})", "public")
+def r_public_wishlist(db, q, b, username):
+    """What a visitor of someone's page sees: only the starred products and liked singles, with photo, price and a
+    link - never the collection itself. 404 unless the owner switched the page on."""
+    u = db.execute("SELECT id, username FROM users WHERE username=?", (username,)).fetchone()
+    if not u:
+        raise ApiError(404, "No such page")
+    udb = connect(u["id"])
+    try:
+        st = public_settings(udb)
+        if not st["enabled"]:
+            raise ApiError(404, "No such page")
+        wl = [dict(r) for r in udb.execute("SELECT uuid, set_code, name FROM wishlist ORDER BY added_at")]
+        out = []
+        for w in wl:
+            m = mj_set(udb, w["set_code"]) or {"sealed": []}
+            prod = next((p for p in m["sealed"] if p.get("uuid") == w["uuid"]), None)
+            s = udb.execute("SELECT name FROM sets WHERE code=?", (w["set_code"],)).fetchone()
+            cost = None
+            if prod and prod.get("mcm"):
+                r = udb.execute("SELECT trend, avg, low FROM cm_prices WHERE id_product=?", (prod["mcm"],)).fetchone()
+                cost = r and (r["trend"] or r["avg"] or r["low"])
+            out.append({"name": (prod or {}).get("name") or w["name"], "category": (prod or {}).get("category"),
+                        "set_name": s[0] if s else w["set_code"].upper(), "price": cost,
+                        "cardmarket_id": (prod or {}).get("mcm"),
+                        "image": f"https://tcgplayer-cdn.tcgplayer.com/product/{prod['tcg']}_in_400x400.jpg"
+                        if prod and prod.get("tcg") else None})
+        cards = [dict(r) for r in udb.execute(
+            f"""SELECT c.name, c.set_code, c.collector_number, c.rarity, s.name AS set_name, c.cardmarket_id,
+                       COALESCE(c.image_large, c.image) AS image, {price_sql("0")} AS price
+                FROM liked l JOIN cards c ON c.id=l.card_id LEFT JOIN sets s ON s.code=c.set_code
+                LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id ORDER BY l.added_at""")]
+        # decks marked Want: the cards still missing from each
+        decks = []
+        for did, in udb.execute("SELECT id FROM decks WHERE want=1 ORDER BY name").fetchall():
+            d = deck_view(udb, did)
+            miss = [{"name": c["name"], "set_code": c["set_code"], "collector_number": c["collector_number"],
+                     "set_name": c["set_name"], "cardmarket_id": c["cardmarket_id"], "price": c["price"],
+                     "image": c["image_large"] or c["image"], "need": c["missing"]}
+                    for c in d["cards"] if c["missing"] > 0]
+            if miss:
+                decks.append({"name": d["name"], "format": d.get("format"), "cards": miss})
+        in_decks = {c["name"] for d in decks for c in d["cards"]}
+        cards = [c for c in cards if c["name"] not in in_decks]  # a liked card a deck needs shows with the deck
+        udb.commit()  # mj_set may have cached a set file
+    finally:
+        udb.close()
+    return {"username": u["username"], "name": st["name"] or u["username"], "greeting": st["greeting"],
+            "items": out, "cards": cards, "decks": decks, "prices": prices_info(db)}
+
+
 # ---------------------------------------------------------------- hall of fame (top cards, value history)
 
 def snapshot(db, force=False):
@@ -2839,6 +2919,8 @@ class Handler(BaseHTTPRequestHandler):
     def _static(self, path):
         if path in ("", "/"):
             path = "/index.html"
+        elif re.fullmatch(r"/u/[A-Za-z0-9_.-]{3,32}/?", path):
+            path = "/wish.html"  # someone's public wishlist; the page reads the name from the address
         full = os.path.normpath(os.path.join(STATIC, path.lstrip("/")))
         if not full.startswith(STATIC) or not os.path.isfile(full):
             return self._send(404, {"error": "Not found"})
