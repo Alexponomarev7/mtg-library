@@ -1328,6 +1328,93 @@ def r_item_move(db, q, b, iid):
     return {"item": item_view(db, new_id)}
 
 
+def binder_room(db, st):
+    """What a binder can still take: its sets, its set-order layout and the pockets already filled."""
+    by_card, by_slot, _, end = binder_layout(db, st)
+    taken = taken_slots(db, st["id"])
+    return {"st": st, "by_card": by_card, "by_slot": by_slot, "end": end, "cap": capacity(st), "taken": taken,
+            "codes": {r[0] for r in db.execute("SELECT set_code FROM storage_sets WHERE storage_id=?", (st["id"],))},
+            "have": {r[0] for r in db.execute("SELECT card_id FROM items WHERE storage_id=?", (st["id"],))}}
+
+
+def pocket_for(room, card):
+    """The pocket this binder has for a card it doesn't hold yet, or None."""
+    if card["id"] in room["have"] or (room["codes"] and card["set_code"] not in room["codes"]):
+        return None
+    if room["st"]["mode"] == "set_order" and room["codes"]:  # only its own pocket; extras don't spill over
+        s = room["by_card"].get(card["id"])
+        return s if s is not None and s < room["cap"] and s not in room["taken"] else None
+    return first_free(room["taken"], room["end"], room["cap"], room["by_slot"])
+
+
+@route("POST", r"/api/storages/(\d+)/distribute")
+def r_distribute(db, q, b, sid):
+    """Share a box out: one copy of every card a chosen binder is missing goes into its pocket, everything else
+    goes to another box (or stays). A dry run makes the moves and rolls them back, so the plan is what will happen."""
+    src = get_storage(db, int(sid))
+    if src["kind"] != "box":
+        raise ApiError(400, "Only a box can be shared out")
+    stacks = db.execute("""SELECT i.id, i.card_id, i.section, c.set_code FROM items i JOIN cards c ON c.id=i.card_id
+                           WHERE i.storage_id=? ORDER BY i.foil, i.id""", (src["id"],)).fetchall()  # plain copies first
+    box_sets = {r["set_code"] for r in stacks}
+    options = []
+    for st in db.execute("SELECT * FROM storages WHERE kind='binder' AND deck_of IS NULL ORDER BY name").fetchall():
+        codes = {r[0] for r in db.execute("SELECT set_code FROM storage_sets WHERE storage_id=?", (st["id"],))}
+        options.append({"id": st["id"], "name": st["name"], "color": st["color"], "general": not codes,
+                        "suggested": bool(codes & box_sets)})
+    chosen = b.get("binders")
+    chosen = [o["id"] for o in options if o["suggested"]] if chosen is None else [as_int(x, "Binder") for x in chosen]
+    rooms = []
+    for bid in chosen:
+        st = get_storage(db, bid)
+        if st["kind"] != "binder":
+            raise ApiError(400, f'{st["name"]} is not a binder')
+        rooms.append(binder_room(db, st))
+    rooms.sort(key=lambda r: not r["codes"])  # binders made for a set before general ones
+    rest = None
+    if b.get("rest_to") not in (None, "", "stay"):
+        rest = get_storage(db, as_int(b["rest_to"], "Box"))
+        if rest["kind"] != "box" or rest["id"] == src["id"]:
+            raise ApiError(400, "Pick another box for the rest")
+    keep = {int(x) for x in b.get("keep") or []}  # stacks the person keeps out of the binders
+
+    to_binders, seen = {r["st"]["id"]: [] for r in rooms}, set()
+    for it in stacks:
+        if it["card_id"] in seen:
+            continue
+        seen.add(it["card_id"])
+        if it["id"] in keep:
+            continue
+        card = card_view(db, it["card_id"])
+        for room in rooms:
+            s = pocket_for(room, card)
+            if s is None:
+                continue
+            moved = r_item_move(db, q, {"storage_id": room["st"]["id"], "slot": s}, it["id"])["item"]
+            room["taken"][s] = card["id"]
+            room["have"].add(card["id"])
+            to_binders[room["st"]["id"]].append(dict(moved, from_section=it["section"], stack=it["id"]))
+            break
+
+    left = [item_dict(r) for r in db.execute(ITEM_SQL + " WHERE i.storage_id=? ORDER BY i.section, c.name",
+                                             (src["id"],))]
+    to_rest, unplaced = [], []
+    if rest:
+        for it in left:
+            try:
+                r_item_move(db, q, {"storage_id": rest["id"], "section": it["section"]}, it["id"])
+                to_rest.append(it)
+            except ApiError as e:
+                unplaced.append(dict(it, reason=e.msg))
+    res = {"binders": [dict(o, checked=o["id"] in chosen) for o in options], "rest_to": rest and rest["id"],
+           "to_binders": [{"id": r["st"]["id"], "name": r["st"]["name"], "color": r["st"]["color"],
+                           "cards": to_binders[r["st"]["id"]]} for r in rooms],
+           "to_rest": to_rest, "unplaced": unplaced, "left": [] if rest else left, "dry_run": bool(b.get("dry_run"))}
+    if res["dry_run"]:
+        db.rollback()
+    return res
+
+
 @route("POST", r"/api/items/(\d+)/edit")
 def r_item_edit(db, q, b, iid):
     """Change printing, foil, condition or language of a card already in the collection."""

@@ -382,6 +382,15 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 @media (max-width:520px){.pocket-dlg{grid-template-columns:1fr}}
 .moves li{padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .moves b{display:block}
+#dlg-dist{width:min(720px,94vw)}
+.dist-opts{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px}
+.dist-opts label{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;font-size:13.5px;cursor:pointer}
+.dist-plan{max-height:52vh;overflow:auto;border-top:1px solid var(--line);margin-top:6px}
+.dist-plan h4{margin:14px 0 6px;display:flex;gap:8px;align-items:center}
+.drow{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:5px 2px;border-bottom:1px solid var(--line);font-size:13.5px}
+.drow.off{opacity:.45;text-decoration:line-through}
+.drow .where{font-variant-numeric:tabular-nums;white-space:nowrap}
+.drow.done{opacity:.4}
 /* accounts */
 [hidden]{display:none!important}  /* the hidden attribute wins over display:flex/grid below */
 #auth{min-height:100vh;display:grid;place-items:center;padding:16px}
@@ -529,6 +538,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 <dialog id="dlg-addset"><form class="dlg" method="dialog" id="addset-form"></form></dialog>
 <dialog id="dlg-deck"><div class="dlg" id="deck-dlg-body"></div></dialog>
 <dialog id="dlg-moves"><div class="dlg" id="moves-body"></div></dialog>
+<dialog id="dlg-dist"><div class="dlg" id="dist-body"></div></dialog>
 </div>
 <div id="toast"></div>
 <div id="owntip" hidden></div>
@@ -868,7 +878,7 @@ async function openStorage(id,page=1){
       <div style="flex:1;min-width:200px"><h2 style="display:flex;gap:8px;align-items:center">${dot(st.color)}${esc(st.name)}</h2>
         <div class="muted small">${st.kind==='binder'?`${st.page_count} pages (${st.sheets} sheets${st.double_sided?', both sides':''}) · ${st.rows}×${st.cols} pockets · ${st.mode==='set_order'?'set order':'fill in order'} · `:''}${st.count}${cap?` / ${cap}`:''} cards · <b class="money" style="color:var(--ink)">${eur(st.value)}</b>${st.notes?' · '+esc(st.notes):''}</div></div>
       ${st.deck?.id?`<button class="btn primary" id="open-deck">Open deck</button>`:st.deck?`<span class="muted small">${esc(st.deck.owner)}'s deck</span>`:''}
-      ${st.deck&&S.shelves?.length?`<select id="st-shelf" title="Deck storage"><option value="none">Not in a deck storage</option>${S.shelves.map(x=>`<option value="${x.id}" ${x.id===st.shelf_id?'selected':''}>In ${esc(x.name)}</option>`).join('')}</select>`:''}<button class="btn" id="edit">Edit</button><button class="btn danger" id="del">Delete</button>
+      ${st.deck&&S.shelves?.length?`<select id="st-shelf" title="Deck storage"><option value="none">Not in a deck storage</option>${S.shelves.map(x=>`<option value="${x.id}" ${x.id===st.shelf_id?'selected':''}>In ${esc(x.name)}</option>`).join('')}</select>`:''}${st.kind==='box'&&!st.deck&&st.count?'<button class="btn" id="dist">Share out…</button>':''}<button class="btn" id="edit">Edit</button><button class="btn danger" id="del">Delete</button>
     </div>
     <div class="detail-grid">
       <div class="panel sets-panel">
@@ -893,6 +903,7 @@ async function openStorage(id,page=1){
   if($('#st-shelf'))$('#st-shelf').onchange=async e=>{try{await api(`/api/storages/${st.id}/shelf`,{method:'PUT',body:{shelf_id:e.target.value==='none'?null:+e.target.value}});toast('Moved');refreshStorages()}catch(err){toast(err.message,'err')}};
   if(st.deck?.id)$('#open-deck').onclick=()=>{S.deck=st.deck.id;setTab('decks')};
   $('#edit').onclick=()=>storageForm(st.kind,st);
+  if($('#dist'))$('#dist').onclick=()=>shareOut(st);
   $('#del').onclick=async()=>{if(!confirm(`Delete ${st.name}?`))return;try{await api('/api/storages/'+st.id,{method:'DELETE'});toast('Deleted');loadStats();loadStorages()}catch(e){toast(e.message,'err')}};
   const setCall=async(p)=>{try{const r=await p;showMoves(r.moves);openStorage(st.id,S.page)}catch(e){toast(e.message,'err')}};
   $$('[data-mv]',d).forEach(b=>b.onclick=()=>{const[c,dir]=b.dataset.mv.split(':');setCall(api(`/api/storages/${st.id}/sets/${c}/move`,{method:'POST',body:{dir:+dir}}))});
@@ -1103,6 +1114,76 @@ function showMoves(moves){
     <ul class="moves" style="list-style:none;padding:0;max-height:55vh;overflow:auto">${moves.map(m=>`<li><b>${esc(m.name)} <span class="muted small">${esc(m.set_code.toUpperCase())} #${esc(m.collector_number)}</span></b>${esc(m.from)} → <b style="display:inline">${esc(m.to)}</b></li>`).join('')}</ul>
     <div class="dlg-foot"><button class="btn primary" onclick="this.closest('dialog').close()">Done</button></div>`;
   $('#dlg-moves').showModal();
+}
+
+/* Share a box out: cards a binder is missing go into its pockets, the rest to another box */
+async function shareOut(src){
+  const body=$('#dist-body'),dlg=$('#dlg-dist');
+  if(!S.storages.length)await refreshStorages();
+  let binders=null,rest='stay',keep=new Set(),plan=null;
+  const where=c=>c.loc?`p. ${c.loc.page} · ${c.loc.row}-${c.loc.col}`:'';
+  const card=c=>`<b>${esc(c.name)}</b> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}</span>${c.foil?' <span class="badge foil">Foil</span>':''}`;
+  const boxes=()=>S.storages.filter(x=>x.kind==='box'&&!x.deck&&x.id!==src.id);
+  const qty=l=>l.reduce((a,c)=>a+c.qty,0);
+  async function run(dry){
+    return api(`/api/storages/${src.id}/distribute`,{method:'POST',body:{binders,rest_to:rest,keep:dry?[]:[...keep],dry_run:dry}});
+  }
+  function draw(){
+    const inB=plan.to_binders.reduce((a,b)=>a+b.cards.filter(c=>!keep.has(c.stack)).length,0),restN=qty(plan.to_rest)+plan.to_binders.reduce((a,b)=>a+b.cards.filter(c=>keep.has(c.stack)).length,0)*(rest==='stay'?0:1);
+    const restBox=boxes().find(x=>x.id===+rest);
+    body.innerHTML=`<h3>Share out ${esc(src.name)}</h3>
+      <div class="muted small">Into binders — one copy of each card a binder doesn't have yet, in its own pocket:</div>
+      <div class="dist-opts">${plan.binders.length?plan.binders.map(o=>`<label><input type="checkbox" data-b="${o.id}" ${o.checked?'checked':''}>${dot(o.color)}${esc(o.name)}${o.general?' <span class="muted small">any set</span>':''}</label>`).join(''):'<span class="muted small">You have no binders.</span>'}</div>
+      <div class="muted small">Everything else:</div>
+      <div class="dist-opts"><select id="dist-rest"><option value="stay">Stays in ${esc(src.name)}</option>${boxes().map(x=>`<option value="${x.id}" ${+rest===x.id?'selected':''}>Goes to ${esc(x.name)}</option>`).join('')}<option value="new">+ New box…</option></select></div>
+      <div class="dist-plan">
+        ${plan.to_binders.filter(b=>b.cards.length).map(b=>`<h4>${dot(b.color)}→ ${esc(b.name)} <span class="muted small">${b.cards.length} card${b.cards.length>1?'s':''}</span></h4>
+          ${b.cards.sort((x,y)=>x.slot-y.slot).map(c=>`<label class="drow ${keep.has(c.stack)?'off':''}"><input type="checkbox" data-k="${c.stack}" ${keep.has(c.stack)?'':'checked'}><span>${card(c)}</span><span class="where muted small">${where(c)}</span></label>`).join('')}`).join('')
+          ||'<p class="muted small" style="margin:14px 0">No card here is missing from the chosen binders.</p>'}
+        ${plan.unplaced.length?`<div class="notes">${plan.unplaced.length} stack${plan.unplaced.length>1?'s':''} won't fit and stay put: ${esc(plan.unplaced[0].reason)}</div>`:''}
+        ${plan.to_rest.length?`<details style="margin-top:12px"><summary class="small" style="cursor:pointer">→ ${esc(restBox?.name||'the other box')}: ${qty(plan.to_rest)} card${qty(plan.to_rest)>1?'s':''}</summary>
+          ${plan.to_rest.map(c=>`<div class="drow"><span></span><span>${card(c)}</span><span class="muted small">×${c.qty}</span></div>`).join('')}</details>`:''}
+        ${plan.left.length?`<p class="muted small">${qty(plan.left)} card${qty(plan.left)>1?'s':''} stay in ${esc(src.name)}.</p>`:''}
+      </div>
+      <div class="dlg-foot"><button class="btn" data-x>Cancel</button><button class="btn primary" id="dist-go" ${inB+restN?'':'disabled'}>Move ${inB+restN} card${inB+restN===1?'':'s'}</button></div>`;
+    $('[data-x]',body).onclick=()=>dlg.close();
+    $$('[data-b]',body).forEach(x=>x.onchange=()=>{binders=$$('[data-b]',body).filter(y=>y.checked).map(y=>+y.dataset.b);keep.clear();refresh()});
+    $$('[data-k]',body).forEach(x=>x.onchange=()=>{x.checked?keep.delete(+x.dataset.k):keep.add(+x.dataset.k);draw()});
+    $('#dist-rest').onchange=async e=>{
+      if(e.target.value==='new'){
+        const name=prompt('Name of the new box');
+        if(!name){e.target.value=rest;return}
+        try{const nb=await api('/api/storages',{method:'POST',body:{kind:'box',name}});await refreshStorages();rest=String(nb.id)}catch(err){toast(err.message,'err');e.target.value=rest;return}
+      }else rest=e.target.value;
+      refresh();
+    };
+    $('#dist-go').onclick=apply;
+  }
+  async function refresh(){try{plan=await run(true);binders=plan.binders.filter(o=>o.checked).map(o=>o.id);draw()}catch(e){toast(e.message,'err')}}
+  async function apply(){
+    let r;try{r=await run(false)}catch(e){return toast(e.message,'err')}
+    loadStats();refreshStorages();openStorage(src.id);
+    const pulled=r.to_binders.flatMap(b=>b.cards.map(c=>({...c,binder:b.name})));
+    const restBox=boxes().find(x=>x.id===r.rest_to);
+    let order='box';
+    const pick=()=>{
+      const l=pulled.slice().sort(order==='box'?(a,b)=>(a.from_section||'').localeCompare(b.from_section||'')||a.name.localeCompare(b.name)
+        :(a,b)=>a.binder.localeCompare(b.binder)||a.slot-b.slot);
+      body.innerHTML=`<h3>Done — now move them by hand</h3>
+        ${pulled.length?`<p class="muted small">Pull these ${pulled.length} card${pulled.length>1?'s':''} out of ${esc(src.name)} and put each into its pocket.</p>
+        <div class="dist-opts"><label><input type="radio" name="ord" value="box" ${order==='box'?'checked':''}> In box order</label><label><input type="radio" name="ord" value="binder" ${order==='binder'?'checked':''}> In binder order</label></div>
+        <div class="dist-plan">${l.map(c=>`<label class="drow"><input type="checkbox"><span>${card(c)}${order==='box'&&c.from_section?` <span class="muted small">· ${esc(c.from_section)}</span>`:''}</span><span class="where small">${esc(c.binder)} · ${where(c)}</span></label>`).join('')}</div>`:''}
+        ${r.to_rest.length?`<p><b>Then put the rest — ${qty(r.to_rest)} card${qty(r.to_rest)>1?'s':''} — into ${esc(restBox?.name||'the other box')}.</b></p>`:''}
+        ${r.unplaced.length?`<div class="notes">${r.unplaced.length} stack${r.unplaced.length>1?'s':''} didn't fit and stayed in ${esc(src.name)}: ${esc(r.unplaced[0].reason)}</div>`:''}
+        <div class="dlg-foot"><button class="btn primary" data-x>Done</button></div>`;
+      $('[data-x]',body).onclick=()=>dlg.close();
+      $$('[name=ord]',body).forEach(x=>x.onchange=()=>{order=x.value;pick()});
+      $$('.drow input',body).forEach(x=>x.onchange=()=>x.closest('.drow').classList.toggle('done',x.checked));
+    };
+    pick();
+  }
+  body.innerHTML='<p class="muted">Working out the plan…</p>';dlg.showModal();
+  await refresh();
 }
 
 /* ------------------------------------------------------------ collections */
