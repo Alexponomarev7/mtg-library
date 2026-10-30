@@ -389,7 +389,7 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 .dist-plan h4{margin:14px 0 6px;display:flex;gap:8px;align-items:center}
 .drow{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:5px 2px;border-bottom:1px solid var(--line);font-size:13.5px}
 .drow.off{opacity:.45;text-decoration:line-through}
-.drow .where{font-variant-numeric:tabular-nums;white-space:nowrap}
+.drow .where{font-variant-numeric:tabular-nums;text-align:right;max-width:48%}
 .drow.done{opacity:.4}
 /* accounts */
 [hidden]{display:none!important}  /* the hidden attribute wins over display:flex/grid below */
@@ -1121,7 +1121,7 @@ async function shareOut(src){
   const body=$('#dist-body'),dlg=$('#dlg-dist');
   if(!S.storages.length)await refreshStorages();
   let binders=null,rest='stay',keep=new Set(),plan=null;
-  const where=c=>c.loc?`p. ${c.loc.page} · ${c.loc.row}-${c.loc.col}`:'';
+  const where=c=>c.loc?`Page ${c.loc.page} (sheet ${c.loc.sheet}${c.loc.side?', '+c.loc.side:''}) · Row ${c.loc.row}, Column ${c.loc.col}`:'';
   const card=c=>`<b>${esc(c.name)}</b> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}</span>${c.foil?' <span class="badge foil">Foil</span>':''}`;
   const boxes=()=>S.storages.filter(x=>x.kind==='box'&&!x.deck&&x.id!==src.id);
   const qty=l=>l.reduce((a,c)=>a+c.qty,0);
