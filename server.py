@@ -107,6 +107,12 @@ CREATE TABLE IF NOT EXISTS storages(
   shelf_id INT);  -- the deck storage a deck box stands in
 CREATE TABLE IF NOT EXISTS deck_shelves(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS orders(  -- draft -> ordered (on the way) -> received, or cancelled
+  id INTEGER PRIMARY KEY, name TEXT, status TEXT DEFAULT 'draft', created_by TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP, ordered_at TEXT, received_at TEXT, shipping REAL);
+CREATE TABLE IF NOT EXISTS order_items(
+  id INTEGER PRIMARY KEY, order_id INT REFERENCES orders(id) ON DELETE CASCADE, card_id TEXT,
+  foil INT DEFAULT 0, qty INT DEFAULT 1, price REAL, condition TEXT DEFAULT 'NM', lang TEXT DEFAULT 'en');
 CREATE TABLE IF NOT EXISTS storage_sets(
   storage_id INT REFERENCES storages(id) ON DELETE CASCADE, set_code TEXT,
   position INT, new_page INT DEFAULT 1, include_extras INT DEFAULT 0, one_per_card INT DEFAULT 0,
@@ -140,7 +146,8 @@ CREATE TABLE IF NOT EXISTS wishlist(
   uuid TEXT PRIMARY KEY, root TEXT, set_code TEXT, name TEXT, added_at TEXT DEFAULT CURRENT_TIMESTAMP);
 """
 USER_SCHEMA = COLLECTION_SCHEMA + PERSONAL_SCHEMA
-COLLECTION_TABLES = ("storages", "storage_sets", "items", "value_history", "events", "deck_shelves")
+COLLECTION_TABLES = ("storages", "storage_sets", "items", "value_history", "events", "deck_shelves", "orders",
+                     "order_items")
 USER_TABLES = ("storages", "storage_sets", "items", "value_history", "decks", "liked", "deck_cards", "wishlist")
 
 
@@ -901,6 +908,7 @@ def r_stats(db, q, b):
     return {"cards": db.execute("SELECT COALESCE(SUM(qty),0) FROM items").fetchone()[0],
             "unique": db.execute("SELECT COUNT(DISTINCT card_id) FROM items").fetchone()[0],
             "storages": db.execute("SELECT COUNT(*) FROM storages").fetchone()[0],
+            "incoming": sum(incoming(db).values()),
             "value": round(db.execute(VALUE_SQL).fetchone()[0], 2), "prices": prices_info(db)}
 
 
@@ -1178,6 +1186,7 @@ def r_page(db, q, b, sid):
     pp = per_page(st)
     start = (n - 1) * pp
     _, by_slot, sections, _ = binder_layout(db, st)
+    inc = incoming(db, by_name=True)
     occ = {r["slot"]: item_dict(r) for r in db.execute(
         ITEM_SQL + " WHERE i.storage_id=? AND i.slot BETWEEN ? AND ?", (st["id"], start, start + pp - 1))}
     exp_ids = [by_slot[s] for s in range(start, start + pp) if s in by_slot]
@@ -1195,6 +1204,8 @@ def r_page(db, q, b, sid):
             e["item"] = occ[s]
         if s in by_slot:
             e["expected"] = exp.get(by_slot[s])
+            if e["expected"] and "item" not in e:
+                e["incoming"] = inc.get(e["expected"]["name"], 0)  # on the way, any printing
         slots.append(e)
     page_sections = [x["name"] for x in sections if x["count"] and x["start"] < start + pp and x["end"] >= start]
     l = slot_loc(st, start)
@@ -1430,10 +1441,12 @@ def r_collection_set(db, q, b, code):
         "SELECT i.card_id, SUM(i.qty) FROM items i JOIN cards c ON c.id=i.card_id WHERE c.set_code=? "
         "GROUP BY i.card_id", (code,))}
     owned_names = owned_by_name(db, code)
+    inc = incoming(db)
     for c in cards:
         c["main"] = c["id"] in main_ids
         c["owned"] = owned_ids.get(c["id"], 0)
         c["owned_name"] = owned_names.get(c["name"], 0)
+        c["incoming"] = inc.get(c["id"], 0)
     cards.sort(key=lambda c: cn_key(c["collector_number"]))
     main = [c for c in cards if c["main"]]
     names = {}
@@ -1814,6 +1827,7 @@ def deck_view(db, did):
         o = owned.get(r["name"], {"qty": 0, "where": []})
         r["owned"], r["where"] = o["qty"], o["where"]
     have_left = {n: owned.get(n, {"qty": 0})["qty"] for n in need}
+    inc_left = incoming(db, by_name=True)
     box_left = {}
     if d["storage_id"]:
         box_left = {r[0]: r[1] for r in db.execute(
@@ -1823,6 +1837,8 @@ def deck_view(db, did):
         use = min(have_left[r["name"]], r["qty"])
         have_left[r["name"]] -= use
         r["missing"] = r["qty"] - use
+        r["incoming"] = min(inc_left.get(r["name"], 0), r["missing"])  # of the missing copies, ordered already
+        inc_left[r["name"]] = inc_left.get(r["name"], 0) - r["incoming"]
         missing_cost += r["missing"] * (r["price"] or 0)
         inb = min(box_left.get(r["name"], 0), r["qty"])
         box_left[r["name"]] = box_left.get(r["name"], 0) - inb
@@ -1833,7 +1849,7 @@ def deck_view(db, did):
     d["stats"] = {"cards": total, "main": sum(r["qty"] for r in rows if r["board"] != "side"),
                   "value": round(sum((r["price"] or 0) * r["qty"] for r in rows), 2),
                   "owned": total - sum(r["missing"] for r in rows), "missing_cost": round(missing_cost, 2),
-                  "in_box": sum(r["in_box"] for r in rows)}
+                  "in_box": sum(r["in_box"] for r in rows), "incoming": sum(r["incoming"] for r in rows)}
     d["physical"] = bool(d["storage_id"])
     return d
 
@@ -2235,12 +2251,14 @@ def r_public_wishlist(db, q, b, username):
             d = deck_view(udb, did)
             miss = [{"name": c["name"], "set_code": c["set_code"], "collector_number": c["collector_number"],
                      "set_name": c["set_name"], "cardmarket_id": c["cardmarket_id"], "price": c["price"],
-                     "image": c["image_large"] or c["image"], "need": c["missing"]}
-                    for c in d["cards"] if c["missing"] > 0]
+                     "image": c["image_large"] or c["image"], "need": c["missing"] - c["incoming"]}
+                    for c in d["cards"] if c["missing"] > c["incoming"]]  # ordered copies aren't gift ideas
             if miss:
                 decks.append({"name": d["name"], "format": d.get("format"), "cards": miss})
         in_decks = {c["name"] for d in decks for c in d["cards"]}
-        cards = [c for c in cards if c["name"] not in in_decks]  # a liked card a deck needs shows with the deck
+        on_way = incoming(udb, by_name=True)
+        cards = [c for c in cards if c["name"] not in in_decks  # a liked card a deck needs shows with the deck
+                 and c["name"] not in on_way]
         udb.commit()  # mj_set may have cached a set file
     finally:
         udb.close()
@@ -2589,7 +2607,10 @@ def tracked_cards(db):
                 e["deck_need"] += c["missing"]
                 e["need"] = max(e["need"], e["deck_need"])  # liking a card the deck needs anyway adds no copy
                 e["sources"].append({"kind": "deck", "deck_id": did, "deck": d["name"], "need": c["missing"]})
-    return t
+    for name, n in incoming(db, by_name=True).items():  # what's ordered already isn't needed any more
+        if name in t:
+            t[name]["need"] -= n
+    return {k: e for k, e in t.items() if e["need"] > 0}
 
 
 def load_prints(db, names, max_age=7 * 24 * 3600):
@@ -2860,6 +2881,221 @@ def r_password(db, q, b):
     db.execute("UPDATE users SET pw_hash=? WHERE id=?", (hash_password(b["new"]), u["id"]))
     db.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (u["id"], u["token_hash"]))  # sign out elsewhere
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- orders (the buying assistant)
+# Build an order card by card (seeing what you already have), mark it ordered - its cards are then "on the way"
+# everywhere - and mark it arrived to put the cards into binders and boxes like Add cards would.
+
+def incoming(db, by_name=False):
+    """Copies on orders that are placed but haven't arrived: card id (or name) -> count."""
+    col = "c.name" if by_name else "oi.card_id"
+    return {r[0]: r[1] for r in db.execute(
+        f"SELECT {col}, SUM(oi.qty) FROM order_items oi JOIN orders o ON o.id=oi.order_id JOIN cards c ON c.id=oi.card_id "
+        f"WHERE o.status='ordered' GROUP BY 1")}
+
+
+def order_view(db, oid):
+    o = db.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    if not o:
+        raise ApiError(404, "Order not found")
+    o = dict(o)
+    o["items"] = [dict(r) for r in db.execute(
+        f"""SELECT oi.*, c.name, c.set_code, c.collector_number, c.rarity, c.image, c.image_large, c.cardmarket_id,
+                   s.name AS set_name, {price_sql("oi.foil")} AS market
+            FROM order_items oi JOIN cards c ON c.id=oi.card_id LEFT JOIN sets s ON s.code=c.set_code
+            LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id WHERE oi.order_id=? ORDER BY oi.id""", (oid,))]
+    names = list({i["name"] for i in o["items"]})
+    owned = {r[0]: r[1] for r in db.execute(
+        f"SELECT c.name, SUM(i.qty) FROM items i JOIN cards c ON c.id=i.card_id "
+        f"WHERE c.name IN ({','.join('?' * len(names))}) GROUP BY c.name", names)} if names else {}
+    for i in o["items"]:
+        i["owned_name"] = owned.get(i["name"], 0)
+    o["total"] = round(sum((i["price"] or 0) * i["qty"] for i in o["items"]), 2)
+    o["market_total"] = round(sum((i["market"] or 0) * i["qty"] for i in o["items"]), 2)
+    o["cards"] = sum(i["qty"] for i in o["items"])
+    return o
+
+
+@route("GET", "/api/orders")
+def r_orders(db, q, b):
+    return [{k: v for k, v in order_view(db, r[0]).items() if k != "items"}
+            for r in db.execute("SELECT id FROM orders ORDER BY CASE status WHEN 'draft' THEN 0 WHEN 'ordered' THEN 1 "
+                                "ELSE 2 END, COALESCE(received_at, ordered_at, created_at) DESC, id DESC")]
+
+
+@route("POST", "/api/orders")
+def r_order_create(db, q, b):
+    oid = db.execute("INSERT INTO orders(name, created_by) VALUES(?,?)",
+                     (str(b.get("name") or "").strip()[:80] or None, _req.user["username"])).lastrowid
+    return order_view(db, oid)
+
+
+@route("GET", r"/api/orders/(\d+)")
+def r_order(db, q, b, oid):
+    return order_view(db, int(oid))
+
+
+@route("PUT", r"/api/orders/(\d+)")
+def r_order_update(db, q, b, oid):
+    o = order_view(db, int(oid))
+    name = str(b.get("name", o["name"]) or "").strip()[:80] or None
+    ship = b.get("shipping", o["shipping"])
+    db.execute("UPDATE orders SET name=?, shipping=? WHERE id=?", (name, None if ship in (None, "") else float(ship), o["id"]))
+    return order_view(db, o["id"])
+
+
+@route("DELETE", r"/api/orders/(\d+)")
+def r_order_delete(db, q, b, oid):
+    o = order_view(db, int(oid))
+    if o["status"] == "ordered":
+        raise ApiError(400, "Mark it arrived or not coming first")
+    db.execute("DELETE FROM order_items WHERE order_id=?", (o["id"],))
+    db.execute("DELETE FROM orders WHERE id=?", (o["id"],))
+    return {"ok": True}
+
+
+def editable(db, oid):
+    o = order_view(db, oid)
+    if o["status"] != "draft":
+        raise ApiError(400, "This order is already placed")
+    return o
+
+
+@route("POST", r"/api/orders/(\d+)/items")
+def r_order_add(db, q, b, oid):
+    o = editable(db, int(oid))
+    card = card_view(db, b.get("card_id"))
+    foil = 1 if b.get("foil") else 0
+    qty = as_int(b.get("qty"), "Quantity", 1, 999, default=1)
+    same = db.execute("SELECT id FROM order_items WHERE order_id=? AND card_id=? AND foil=?",
+                      (o["id"], card["id"], foil)).fetchone()
+    if same:
+        db.execute("UPDATE order_items SET qty=qty+? WHERE id=?", (qty, same[0]))
+    else:
+        price = b.get("price")
+        if price in (None, ""):  # today's market price until you type what you actually pay
+            r = db.execute(f"SELECT {price_sql(foil)} FROM cards c LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id "
+                           f"WHERE c.id=?", (card["id"],)).fetchone()
+            price = r[0] and round(r[0], 2)
+        db.execute("INSERT INTO order_items(order_id, card_id, foil, qty, price) VALUES(?,?,?,?,?)",
+                   (o["id"], card["id"], foil, qty, price))
+    return order_view(db, o["id"])
+
+
+@route("PUT", r"/api/orders/(\d+)/items/(\d+)")
+def r_order_item(db, q, b, oid, iid):
+    o = editable(db, int(oid))
+    it = db.execute("SELECT * FROM order_items WHERE id=? AND order_id=?", (int(iid), o["id"])).fetchone()
+    if not it:
+        raise ApiError(404, "Not in this order")
+    qty = as_int(b.get("qty", it["qty"]), "Quantity", 0, 999)
+    if qty == 0:
+        db.execute("DELETE FROM order_items WHERE id=?", (it["id"],))
+    else:
+        price = b.get("price", it["price"])
+        db.execute("UPDATE order_items SET qty=?, foil=?, price=?, condition=?, lang=? WHERE id=?",
+                   (qty, 1 if b.get("foil", it["foil"]) else 0, None if price in (None, "") else float(price),
+                    b.get("condition") or it["condition"], b.get("lang") or it["lang"], it["id"]))
+    return order_view(db, o["id"])
+
+
+@route("POST", r"/api/orders/(\d+)/status")
+def r_order_status(db, q, b, oid):
+    """ordered: the cards are now on the way. cancelled: it won't come (from a draft: not ordering after all).
+    draft: back to editing."""
+    o = order_view(db, int(oid))
+    st = b.get("status")
+    if st == "ordered":
+        if o["status"] != "draft" or not o["items"]:
+            raise ApiError(400, "Add cards to the order first" if not o["items"] else "Already placed")
+        db.execute("UPDATE orders SET status='ordered', ordered_at=CURRENT_TIMESTAMP WHERE id=?", (o["id"],))
+    elif st == "cancelled" and o["status"] in ("draft", "ordered"):
+        db.execute("UPDATE orders SET status='cancelled' WHERE id=?", (o["id"],))
+    elif st == "draft" and o["status"] in ("ordered", "cancelled"):
+        db.execute("UPDATE orders SET status='draft', ordered_at=NULL WHERE id=?", (o["id"],))
+    else:
+        raise ApiError(400, "Can't change this order that way")
+    return order_view(db, o["id"])
+
+
+def arrivals_box(db):
+    """Cards no binder or box takes go into a box called Arrivals (made when first needed)."""
+    r = db.execute("SELECT id FROM storages WHERE name='Arrivals' AND kind='box' AND deck_of IS NULL").fetchone()
+    if r:
+        return r[0]
+    return db.execute("INSERT INTO storages(name, kind, mode, double_sided, color, notes) VALUES(?,?,?,?,?,?)",
+                      ("Arrivals", "box", "sequential", 0, "#a5832a", "Ordered cards that had no place yet")).lastrowid
+
+
+@route("POST", r"/api/orders/(\d+)/receive")
+def r_order_receive(db, q, b, oid):
+    """The order arrived: every card goes where Add cards would suggest, at the price you paid."""
+    o = order_view(db, int(oid))
+    if o["status"] != "ordered":
+        raise ApiError(400, "Only an order on the way can arrive")
+    placed = []
+    for it in o["items"]:
+        for _ in range(it["qty"]):
+            sg = suggest(db, it["card_id"])["suggestions"]
+            box = None if sg else get_storage(db, arrivals_box(db))
+            if sg and sg[0]["kind"] == "binder":
+                iid = db.execute("INSERT INTO items(card_id,storage_id,slot,foil,condition,lang,qty,price_at_add) "
+                                 "VALUES(?,?,?,?,?,?,1,?)", (it["card_id"], sg[0]["storage_id"], sg[0]["slot"],
+                                                             it["foil"], it["condition"], it["lang"], it["price"])).lastrowid
+            else:
+                sid = sg[0]["storage_id"] if sg else box["id"]
+                section = (sg[0].get("section") if sg else None) or it["set_name"] or it["set_code"].upper()
+                same = db.execute("SELECT id FROM items WHERE storage_id=? AND card_id=? AND foil=? AND condition=? "
+                                  "AND lang=? AND COALESCE(section,'')=?",
+                                  (sid, it["card_id"], it["foil"], it["condition"], it["lang"], section)).fetchone()
+                if same:
+                    add_copies(db, same[0], 1, it["price"])
+                    iid = same[0]
+                else:
+                    iid = db.execute("INSERT INTO items(card_id,storage_id,section,foil,condition,lang,qty,price_at_add) "
+                                     "VALUES(?,?,?,?,?,?,1,?)", (it["card_id"], sid, section, it["foil"],
+                                                                 it["condition"], it["lang"], it["price"])).lastrowid
+            placed.append(item_view(db, iid))
+    db.execute("UPDATE orders SET status='received', received_at=CURRENT_TIMESTAMP WHERE id=?", (o["id"],))
+    ids = list(dict.fromkeys(p["id"] for p in placed))  # one line per place: a box keeps copies in one item
+    return {"order": order_view(db, o["id"]), "placed": [item_view(db, i) for i in ids]}
+
+
+@route("GET", "/api/orders/lookup")
+def r_order_lookup(db, q, b):
+    """Card search for the order: each printing with what you have of the card already (any printing, where), what's
+    on the way, and today's price."""
+    cards = r_card_search(db, q, b)
+    names = list({c["name"] for c in cards})
+    owned, inc_id, inc_name = {}, incoming(db), incoming(db, by_name=True)
+    if names:
+        for r in db.execute(ITEM_SQL + f" WHERE c.name IN ({','.join('?' * len(names))}) ORDER BY i.id", names):
+            it = item_dict(r)
+            o = owned.setdefault(it["name"], {"qty": 0, "where": []})
+            o["qty"] += it["qty"]
+            if len(o["where"]) < 3:
+                o["where"].append(it["location"])
+    prices = {r[0]: (r[1], r[2]) for r in db.execute(
+        f"SELECT c.id, {price_sql(0)}, {price_sql(1)} FROM cards c LEFT JOIN cm_prices p ON p.id_product=c.cardmarket_id "
+        f"WHERE c.id IN (SELECT value FROM json_each(?))", (json.dumps([c["id"] for c in cards]),))}
+    for c in cards:
+        o = owned.get(c["name"], {"qty": 0, "where": []})
+        c["owned_name"], c["where"] = o["qty"], o["where"]
+        c["incoming"], c["incoming_name"] = inc_id.get(c["id"], 0), inc_name.get(c["name"], 0)
+        c["price"], c["price_foil"] = prices.get(c["id"], (None, None))
+    return cards
+
+
+@route("GET", "/api/incoming")
+def r_incoming(db, q, b):
+    """Cards on the way (orders placed, not arrived), optionally matching a name."""
+    text = (q.get("q") or "").strip()
+    return [dict(r) for r in db.execute(
+        """SELECT oi.card_id, oi.foil, oi.qty, o.id AS order_id, COALESCE(o.name, 'Order ' || o.id) AS order_name,
+                  o.ordered_at, c.name, c.set_code, c.collector_number, c.image, c.image_large
+           FROM order_items oi JOIN orders o ON o.id=oi.order_id JOIN cards c ON c.id=oi.card_id
+           WHERE o.status='ordered' AND c.name LIKE ? ORDER BY c.name""", (f"%{text}%",))]
 
 
 # ---------------------------------------------------------------- the Log

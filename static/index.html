@@ -275,6 +275,20 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .loge .ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:12px;font-weight:700;flex:none;background:var(--panel2);color:var(--muted)}
 .loge .ic.add{background:var(--accent-soft);color:var(--accent)}.loge .ic.remove{background:var(--warn-soft);color:var(--warn)}
 .logday{font-weight:700;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin:18px 0 8px}
+.ccard .own.way,.pocket .way{top:auto;bottom:24px;background:#a5832a;color:#fff}
+.pocket .way{position:absolute;left:5px;font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px}
+.ostat{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:5px;background:var(--panel2);color:var(--muted)}
+.ostat.draft{background:var(--accent-soft);color:var(--accent)}.ostat.ordered{background:#a5832a;color:#fff}.ostat.cancelled{text-decoration:line-through}
+.orow{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:12px 16px;margin-bottom:8px;width:100%;text-align:left;font:inherit;color:inherit}
+.lk{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.lk img{width:36px;border-radius:3px}
+.lk .ctl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.lk input[type=number]{width:58px;padding:5px 6px}
+.oline{display:grid;grid-template-columns:36px 1fr 70px 64px 86px 80px 28px;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.oline img{width:36px;border-radius:3px}
+.oline input{width:100%;padding:5px 6px}
+.cheap{color:var(--accent);font-weight:600}.dear{color:var(--warn);font-weight:600}
+@media (max-width:640px){.oline{grid-template-columns:36px 1fr 64px 80px 28px}.oline .hide-s{display:none}.orow{grid-template-columns:1fr auto}}
 #owntip{position:fixed;z-index:50;pointer-events:none;max-width:300px;padding:8px 10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,.3);font-size:12.5px;line-height:1.4}
 #owntip div+div{margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
 .ccard .own[data-own]{cursor:help}
@@ -482,6 +496,8 @@ dialog::backdrop{background:rgba(10,10,10,.45)}
 
   <section id="view-honor" class="view" hidden><div id="honor"></div></section>
 
+  <section id="view-orders" class="view" hidden><div id="orders"></div></section>
+
   <section id="view-log" class="view" hidden><div id="log"></div></section>
 
   <section id="view-account" class="view" hidden><div id="account" class="acct"></div></section>
@@ -558,7 +574,7 @@ const dot=c=>`<span class="dot" style="background:${esc(c||'var(--accent)')}"></
 // The address keeps where you are (tab, binder page, set, deck), so reloading the page stays there.
 function setHash(h){h='#'+h;if(location.hash!==h)history.replaceState(null,'',h)}
 const GROUPS={library:[['storage','Binders & boxes'],['collections','Collections'],['decks','Decks'],['log','Log']],
-  shop:[['market','Market'],['wishlist','Wishlist'],['discounts','Discounts']]};
+  shop:[['orders','Orders'],['market','Market'],['wishlist','Wishlist'],['discounts','Discounts']]};
 const groupOf=t=>Object.keys(GROUPS).find(g=>GROUPS[g].some(([k])=>k===t));
 S.groupLast={};
 function setTab(t){
@@ -579,16 +595,17 @@ function setTab(t){
   if(t==='discounts')loadDiscounts()
   if(t==='account')loadAccount()
   if(t==='log')loadLog()
+  if(t==='orders'){if(S.order)openOrder(S.order);else loadOrders()}
 }
 function openTab(t){  // clicking the tab you're on goes back to its list
-  if(t==='storage'&&S.tab==='storage'){S.cur=null}if(t==='collections'&&S.tab==='collections'){S.coll=null}if(t==='decks'&&S.tab==='decks'){S.deck=null}
+  if(t==='orders'&&S.tab==='orders'){S.order=null}if(t==='storage'&&S.tab==='storage'){S.cur=null}if(t==='collections'&&S.tab==='collections'){S.coll=null}if(t==='decks'&&S.tab==='decks'){S.deck=null}
   setTab(t);
 }
 $$('nav .tab').forEach(b=>b.onclick=()=>b.dataset.group?setTab(S.groupLast[b.dataset.group]||GROUPS[b.dataset.group][0][0]):openTab(b.dataset.tab));
 $('#subnav').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(b)openTab(b.dataset.tab)});
 async function loadStats(){
   try{const s=await api('/api/stats'),el=$('#stats');S.prices=s.prices;
-    el.innerHTML=`${s.cards} cards · ${s.unique} unique · ${s.storages} places · <b class="money" style="color:var(--ink)">${eur(s.value)}</b>`;
+    el.innerHTML=`${s.cards} cards · ${s.unique} unique · ${s.storages} places${s.incoming?` · <a href="#orders" style="color:inherit">${s.incoming} on the way</a>`:''} · <b class="money" style="color:var(--ink)">${eur(s.value)}</b>`;
     el.title=s.prices.date?`Prices: ${s.prices.source}, ${s.prices.date.slice(0,10)}`:'Prices not downloaded yet'}catch(e){}
 }
 
@@ -619,8 +636,13 @@ const runFind=debounce(async()=>{
     const items=await api('/api/items?q='+encodeURIComponent(q));
     S.findItems=items;
     if(seq!==findSeq)return;
-    el.innerHTML=items.length?(q?'':'<h3 class="sub">Recently added</h3>')+items.map(itemRow).join('')
-      :`<div class="empty">${q?'Not found in your collection.':S.storages.length?'No cards yet. Go to Add cards to put your first one away.':'Your collection is empty. Create a binder or box, then add cards.'}</div>`;
+    const way=await api('/api/incoming?q='+encodeURIComponent(q)).catch(()=>[]);
+    if(seq!==findSeq)return;
+    const wayHtml=way.length?`<h3 class="sub">🚚 On the way</h3>${way.map(x=>`<div class="panel" style="padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:center" data-img="${esc(x.image_large||x.image||'')}">
+        <b>${x.qty>1?x.qty+' × ':''}${esc(x.name)}</b><span class="muted small">${esc(x.set_code.toUpperCase())} #${esc(x.collector_number)}${x.foil?' · foil':''}</span>
+        <a class="small" style="margin-left:auto" href="#orders/${x.order_id}">${esc(x.order_name)}</a></div>`).join('')}${items.length?'<h3 class="sub">In your collection</h3>':''}`:'';
+    el.innerHTML=wayHtml+(items.length?(q||way.length?'':'<h3 class="sub">Recently added</h3>')+items.map(itemRow).join('')
+      :way.length?'':`<div class="empty">${q?'Not found in your collection.':S.storages.length?'No cards yet. Go to Add cards to put your first one away.':'Your collection is empty. Create a binder or box, then add cards.'}</div>`);
   }catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 },180);
 $('#find-q').addEventListener('input',runFind);
@@ -945,7 +967,7 @@ async function loadPage(n){
     <div class="binder-page" style="grid-template-columns:repeat(${st.cols},minmax(0,1fr))">
       ${r.slots.map(s=>{const h=s.slot===hl?'hl':'';
         if(s.item)return `<button class="pocket ${h}" data-slot="${s.slot}" title="${esc(s.item.name)} — R${s.row} C${s.col}"><img src="${esc(s.item.image_large||s.item.image)}" alt="${esc(s.item.name)}" loading="lazy">${s.item.foil?'<span class="foil-dot">F</span>':''}${s.item.price!=null?`<span class="price-chip">${eur(s.item.price)}</span>`:''}</button>`;
-        if(s.expected)return `<button class="pocket expect ${h}" data-slot="${s.slot}" title="Missing: ${esc(s.expected.name)}"><img src="${esc(s.expected.image_large||s.expected.image)}" alt="" loading="lazy"><span class="exp-label">#${esc(s.expected.collector_number)} ${esc(s.expected.name)}</span>${(s.expected.price??s.expected.price_foil)!=null?`<span class="price-chip ghost">${eur(s.expected.price??s.expected.price_foil)}</span>`:''}</button>`;
+        if(s.expected)return `<button class="pocket expect ${h}" data-slot="${s.slot}" title="Missing: ${esc(s.expected.name)}"><img src="${esc(s.expected.image_large||s.expected.image)}" alt="" loading="lazy">${s.incoming?'<span class="way">🚚 on the way</span>':''}<span class="exp-label">#${esc(s.expected.collector_number)} ${esc(s.expected.name)}</span>${(s.expected.price??s.expected.price_foil)!=null?`<span class="price-chip ghost">${eur(s.expected.price??s.expected.price_foil)}</span>`:''}</button>`;
         return `<div class="pocket empty ${h}"><span>R${s.row} · C${s.col}</span></div>`}).join('')}
     </div>
     <p class="muted small">Tip: use ← → keys to flip pages.</p>`;
@@ -1018,8 +1040,10 @@ function bindEdit(it,st,dlg,after=reopen(st)){
 }
 // an empty pocket: do you already own this card somewhere else (any printing)? offer to move a copy here
 async function elsewhere(c,st,slot,dlg){
-  let items=[];try{items=(await api('/api/items?q='+encodeURIComponent(c.name))).filter(it=>it.name===c.name)}catch(e){}
+  let items=[],way=[];try{items=(await api('/api/items?q='+encodeURIComponent(c.name))).filter(it=>it.name===c.name)}catch(e){}
+  try{way=(await api('/api/incoming?q='+encodeURIComponent(c.name))).filter(x=>x.name===c.name)}catch(e){}
   const own=$('#pk-own'),box=$('#pk-else');if(!own)return;
+  if(way.length)own.insertAdjacentHTML('beforebegin',`<p class="small" style="color:#a5832a"><b>🚚 On the way:</b> ${way.map(x=>`${x.qty} × ${esc(x.set_code.toUpperCase())} #${esc(x.collector_number)}${x.foil?' foil':''} (<a href="#orders/${x.order_id}">${esc(x.order_name)}</a>)`).join(', ')}</p>`);
   if(!items.length){own.textContent='Not in your collection yet.';return}
   const n=items.reduce((a,it)=>a+it.qty,0);
   own.innerHTML=`<b>You own ${n} cop${n===1?'y':'ies'}</b>, just not in this pocket:`;
@@ -1165,7 +1189,7 @@ async function openSet(code){
     const state=c=>c.owned?'owned':c.owned_name?'other':'missing';
     const cs=r.cards.filter(c=>(ex||c.main)&&(f==='all'||state(c)===f));
     $('#cgrid').innerHTML=cs.length?cs.map(c=>`<a class="ccard ${c.owned?'':'miss'}" href="${esc(cmUrl(c))}" target="_blank" rel="noopener" title="${esc(c.name)}${state(c)==='other'?' — you have it in another printing':''} — open on Cardmarket">
-      <img src="${esc(c.image)}" alt="" loading="lazy">${c.owned?`<span class="own" title="" data-own="${esc(c.id)}" data-name="${esc(c.name)}">×${c.owned}</span>`:c.owned_name?`<span class="own alt" title="" data-own="" data-name="${esc(c.name)}">other print</span>`:''}${(c.price??c.price_foil)!=null?`<span class="price-chip">${eur(c.price??c.price_foil)}</span>`:''}
+      <img src="${esc(c.image)}" alt="" loading="lazy">${c.owned?`<span class="own" title="" data-own="${esc(c.id)}" data-name="${esc(c.name)}">×${c.owned}</span>`:c.owned_name?`<span class="own alt" title="" data-own="" data-name="${esc(c.name)}">other print</span>`:''}${c.incoming?`<span class="own way" title="Ordered, on the way">🚚 ${c.incoming}</span>`:''}${(c.price??c.price_foil)!=null?`<span class="price-chip">${eur(c.price??c.price_foil)}</span>`:''}
       ${heartHtml(c.id)}<span class="cn">#${esc(c.collector_number)} ${esc(c.name)}</span></a>`).join(''):'<div class="empty" style="grid-column:1/-1">Nothing here.</div>'};
   $$('#cf button').forEach(b=>b.onclick=()=>{f=b.dataset.f;$$('#cf button').forEach(x=>x.classList.toggle('on',x===b));draw()});
   $('#cx').onchange=draw;draw();
@@ -1391,7 +1415,7 @@ function renderDeck(d){
       ${cs.map(c=>`<div class="dk-row" data-dc="${c.id}"><input type="number" min="0" value="${c.qty}" data-qty title="0 removes it">
         <img src="${esc(c.image)}" alt="" loading="lazy">
         <span class="nm"><a href="${esc(cmUrl(c))}" target="_blank" rel="noopener" style="color:var(--ink);font-weight:600">${esc(c.name)}</a> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)}${c.foil?' · foil':''}</span></span>
-        <span class="hide-s" title="${esc(c.where.join('\n'))}">${d.physical?(c.in_box>=c.qty?'<span class="have">✓ in box</span>':`<span class="need">${c.qty-c.in_box} not in box</span>`):c.missing?`<span class="need">need ${c.missing}</span>${c.owned?` <span class="muted small">(have ${c.owned})</span>`:''}`:`<span class="have">✓ owned</span>`}</span>
+        <span class="hide-s" title="${esc(c.where.join('\n'))}">${d.physical?(c.in_box>=c.qty?'<span class="have">✓ in box</span>':`<span class="need">${c.qty-c.in_box} not in box</span>`):c.missing?`<span class="need">need ${c.missing}</span>${c.incoming?` <span class="small" style="color:#a5832a">🚚 ${c.incoming} on the way</span>`:''}${c.owned?` <span class="muted small">(have ${c.owned})</span>`:''}`:`<span class="have">✓ owned</span>`}</span>
         <span class="money small" style="text-align:right">${eur(c.price==null?null:c.price*c.qty)}</span>
         <select data-board class="hide-s">${Object.entries(BOARD_NAME).map(([k,v])=>`<option value="${k}" ${k===c.board?'selected':''}>${v}</option>`).join('')}</select>
         <button class="icon-btn" data-rm title="Remove">✕</button></div>`).join('')}`).join('')
@@ -1566,6 +1590,99 @@ async function toggleStar(p,root,el){
   }catch(e){toast(e.message,'err')}
 }
 $('#wl-rp').onchange=e=>{S.reprints=e.target.checked;S.market=null;loadWishlist()};
+/* ------------------------------------------------------------ orders */
+// A buying assistant: start an order, look cards up (seeing what you already have), add them with quantity and price,
+// then say whether you ordered. Ordered cards show as "on the way" everywhere until the order arrives.
+const OSTAT={draft:'in progress',ordered:'on the way',received:'arrived',cancelled:'not ordered'};
+const oname=o=>o.name||`Order ${o.id}`,oday=d=>d?fmtDay(d.slice(0,10)):'';
+async function loadOrders(){
+  S.order=null;S.lookCache={};setHash('orders');const el=$('#orders');
+  let l;try{l=await api('/api/orders')}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  const row=o=>`<button class="panel orow" data-order="${o.id}"><span><b>${esc(oname(o))}</b> <span class="ostat ${o.status}">${OSTAT[o.status]}</span><br>
+      <span class="muted small">${o.cards} card${o.cards===1?'':'s'} · ${o.status==='ordered'?'ordered '+oday(o.ordered_at):o.status==='received'?'arrived '+oday(o.received_at):'started '+oday(o.created_at)}${o.created_by?' · '+esc(o.created_by):''}</span></span>
+      <span class="money">${eur(o.total+(o.shipping||0))}</span><span class="muted small hide-s">market ${eur(o.market_total)}</span></button>`;
+  const active=l.filter(o=>o.status==='draft'||o.status==='ordered'),done=l.filter(o=>o.status==='received'||o.status==='cancelled');
+  el.innerHTML=`<form id="order-new" class="toolbar"><input name="n" placeholder="Seller or shop (optional)" maxlength="80" style="width:240px"><button class="btn primary">Start an order</button>
+      <span class="muted small">look cards up, add what you buy, then mark it ordered</span></form>
+    ${active.length?active.map(row).join(''):'<div class="empty">No orders in progress or on the way.</div>'}
+    ${done.length?`<details style="margin-top:14px"><summary class="small muted" style="cursor:pointer">Arrived and cancelled (${done.length})</summary><div style="margin-top:8px">${done.map(row).join('')}</div></details>`:''}`;
+  $('#order-new').onsubmit=async e=>{e.preventDefault();try{const o=await api('/api/orders',{method:'POST',body:{name:e.target.n.value}});openOrder(o.id)}catch(err){toast(err.message,'err')}};
+  $$('[data-order]',el).forEach(b=>b.onclick=()=>openOrder(+b.dataset.order));
+}
+async function openOrder(id,o){
+  S.order=id;setHash('orders/'+id);const el=$('#orders');
+  if(!o){try{o=await api('/api/orders/'+id)}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}}
+  const draft=o.status==='draft',diff=o.total-o.market_total;
+  const line=it=>`<div class="oline" data-img="${esc(it.image_large||it.image||'')}" data-line="${it.id}"><img src="${esc(it.image||'')}" alt="" loading="lazy">
+      <span><b>${esc(it.name)}</b><br><span class="muted small">${esc(it.set_code.toUpperCase())} #${esc(it.collector_number)}${it.owned_name?` · you have ${it.owned_name}`:''}</span></span>
+      ${draft?`<label class="small" style="display:flex;gap:4px;align-items:center"><input type="checkbox" data-f="foil" ${it.foil?'checked':''}> foil</label>
+        <input type="number" data-f="qty" min="0" max="999" value="${it.qty}" title="Copies">
+        <input type="number" data-f="price" min="0" step="0.01" value="${it.price??''}" placeholder="€" title="Price per copy you pay">`
+        :`<span class="small">${it.foil?'foil':''}</span><span>${it.qty} ×</span><span class="money">${eur(it.price)}</span>`}
+      <span class="small hide-s ${it.price!=null&&it.market!=null?(it.price<=it.market?'cheap':'dear'):'muted'}" title="Market price per copy">mkt ${eur(it.market)}</span>
+      ${draft?`<button class="btn sm danger" data-rm="${it.id}" title="Remove">×</button>`:'<span></span>'}</div>`;
+  el.innerHTML=`<div class="toolbar"><button class="btn" id="o-back">← Orders</button>
+      <input id="o-name" value="${esc(o.name||'')}" placeholder="Order ${o.id} - seller or shop" ${draft?'':'disabled'} style="width:240px">
+      <span class="ostat ${o.status}">${OSTAT[o.status]}</span><span class="muted small">${o.created_by?'by '+esc(o.created_by):''}</span></div>
+    ${draft?`<div class="panel" style="padding:12px 16px;margin-bottom:14px"><input id="o-q" class="big" placeholder="Card to buy - name, or set + number like “blb 12”" autocomplete="off" style="width:100%">
+      <div id="o-res" class="small muted" style="margin-top:6px">Type a card name to see whether you have it, its printings and prices.</div></div>`:''}
+    <div class="panel" style="padding:12px 16px">
+      <h3 style="margin:0 0 6px">${o.cards} card${o.cards===1?'':'s'} in this order</h3>
+      ${o.items.length?o.items.map(line).join(''):'<div class="muted small" style="padding:8px 0">Nothing yet - look a card up above and add it.</div>'}
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+        <span>Cards <b class="money">${eur(o.total)}</b></span>
+        <label class="small" style="display:flex;gap:6px;align-items:center">Shipping <input id="o-ship" type="number" min="0" step="0.01" value="${o.shipping??''}" placeholder="€" style="width:80px" ${draft||o.status==='ordered'?'':'disabled'}></label>
+        <span>Total <b class="money">${eur(o.total+(o.shipping||0))}</b></span>
+        <span class="small ${o.items.length?(diff<=0?'cheap':'dear'):'muted'}">${o.items.length?`market ${eur(o.market_total)} · ${diff<=0?'you save':'you pay'} ${eur(Math.abs(diff))} on cards`:''}</span>
+      </div></div>
+    <div class="toolbar" style="margin-top:14px">
+      ${draft?`<button class="btn primary" id="o-ordered" ${o.items.length?'':'disabled'}>✓ I ordered it</button><button class="btn" id="o-cancel">Not ordering</button>`:''}
+      ${o.status==='ordered'?`<button class="btn primary" id="o-arrived">📦 Arrived - put the cards away</button><button class="btn" id="o-edit">Edit again</button><button class="btn danger" id="o-cancel">Didn't come</button>`:''}
+      ${o.status==='cancelled'?`<button class="btn" id="o-edit">Back to editing</button><button class="btn danger" id="o-del">Delete</button>`:''}
+      ${o.status==='received'?`<span class="muted small">Arrived ${oday(o.received_at)} - the cards are in your collection (see Log).</span>`:''}
+    </div><div id="o-placed"></div>`;
+  const re=r=>openOrder(id,r);
+  $('#o-back').onclick=loadOrders;
+  if(draft)$('#o-name').onchange=async e=>re(await api('/api/orders/'+id,{method:'PUT',body:{name:e.target.value}}));
+  if($('#o-ship'))$('#o-ship').onchange=async e=>re(await api('/api/orders/'+id,{method:'PUT',body:{shipping:e.target.value}}));
+  $$('[data-line]',el).forEach(ln=>$$('[data-f]',ln).forEach(inp=>inp.onchange=async()=>{
+    const f=inp.dataset.f,v=f==='foil'?inp.checked:inp.value;
+    try{re(await api(`/api/orders/${id}/items/${ln.dataset.line}`,{method:'PUT',body:{[f]:v}}))}catch(e){toast(e.message,'err')}}));
+  $$('[data-rm]',el).forEach(b=>b.onclick=async()=>re(await api(`/api/orders/${id}/items/${b.dataset.rm}`,{method:'PUT',body:{qty:0}})));
+  const status=async st=>{try{const r=await api(`/api/orders/${id}/status`,{method:'POST',body:{status:st}});loadStats();return r}catch(e){toast(e.message,'err')}};
+  if($('#o-ordered'))$('#o-ordered').onclick=async()=>{const r=await status('ordered');if(r){toast('Ordered - the cards are on the way');re(r)}};
+  if($('#o-cancel'))$('#o-cancel').onclick=async()=>{if(!confirm(draft?'Not ordering these cards?':'Mark this order as not coming? Its cards stop showing as on the way.'))return;const r=await status('cancelled');if(r)re(r)};
+  if($('#o-edit'))$('#o-edit').onclick=async()=>{const r=await status('draft');if(r)re(r)};
+  if($('#o-del'))$('#o-del').onclick=async()=>{if(!confirm('Delete this order?'))return;await api('/api/orders/'+id,{method:'DELETE'});loadOrders()};
+  if($('#o-arrived'))$('#o-arrived').onclick=async()=>{
+    if(!confirm(`Put the ${o.cards} card${o.cards===1?'':'s'} of this order into your binders and boxes?`))return;
+    try{const r=await api(`/api/orders/${id}/receive`,{method:'POST'});loadStats();refreshStorages();re(r.order);
+      $('#o-placed').innerHTML=`<div class="panel" style="padding:12px 16px;margin-top:10px"><h3 style="margin:0 0 6px">Put away</h3>${r.placed.map(it=>`<div class="loge" data-img="${esc(it.image_large||it.image||'')}"><span class="ic add">+</span><span><b>${esc(it.name)}</b> → ${esc(it.location)}</span></div>`).join('')}</div>`;
+      toast('Arrived - cards added to your collection')}catch(e){toast(e.message,'err')}};
+  if(draft){
+    let seq=0;
+    const look=debounce(async()=>{const q=$('#o-q').value.trim(),res=$('#o-res'),my=++seq;
+      if(q.length<2){res.innerHTML='Type a card name to see whether you have it, its printings and prices.';return}
+      res.innerHTML='Looking it up…';
+      S.lookCache=S.lookCache||{};  // adding a card redraws the order; the same lookup then comes back instantly
+      let cards;try{cards=S.lookCache[q]||(S.lookCache[q]=await api('/api/orders/lookup?q='+encodeURIComponent(q)))}catch(e){if(my===seq)res.innerHTML=esc(e.message);return}
+      if(my!==seq)return;
+      if(!cards.length){res.innerHTML='No card found.';return}
+      const c0=cards[0];
+      res.innerHTML=`<div style="margin:4px 0 6px;color:var(--ink)">${c0.owned_name?`<b class="cheap">You have ${c0.owned_name} ${esc(c0.name)}</b> <span class="muted">(${esc(c0.where.join('; '))}${c0.owned_name>c0.where.length?'…':''})</span>`:`<b class="dear">You don't have ${esc(c0.name)} yet</b>`}${c0.incoming_name?` · <span style="color:#a5832a">🚚 ${c0.incoming_name} on the way</span>`:''}${new Set(cards.map(c=>c.name.split(' // ')[0])).size>1?' <span class="muted">· several cards match, keep typing to narrow down</span>':''}</div>`
+        +cards.slice(0,30).map((c,i)=>`<div class="lk" data-img="${esc(c.image_large||c.image||'')}"><img src="${esc(c.image||'')}" alt="" loading="lazy">
+          <span><b>${esc(c.name)}</b> <span class="muted">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${esc(c.set_name||'')}</span><br>
+            <span class="muted">${c.owned?`this printing: ${c.owned}`:'this printing: none'}${c.incoming?` · 🚚 ${c.incoming} on the way`:''}</span></span>
+          <span class="ctl"><span class="money">${eur(c.price)}</span>${c.price_foil!=null?`<label class="muted" style="display:flex;gap:3px;align-items:center"><input type="checkbox" data-foil="${i}"> foil ${eur(c.price_foil)}</label>`:''}
+            <input type="number" min="1" max="999" value="1" data-qty="${i}"><button class="btn sm primary" data-add="${i}">Add</button></span></div>`).join('');
+      $$('[data-add]',res).forEach(b=>b.onclick=async()=>{const i=+b.dataset.add,c=cards[i];
+        try{const r=await api(`/api/orders/${id}/items`,{method:'POST',body:{card_id:c.id,qty:+$(`[data-qty="${i}"]`,res).value||1,foil:!!$(`[data-foil="${i}"]`,res)?.checked}});
+          toast(`Added ${c.name}`);const keep=$('#o-q').value;re(r).then(()=>{$('#o-q').value=keep;$('#o-q').focus();$('#o-q').dispatchEvent(new Event('input'))})}catch(e){toast(e.message,'err')}});
+    },350);
+    $('#o-q').addEventListener('input',look);
+  }
+}
+
 /* ------------------------------------------------------------ log */
 // Everything that changed in the binders and boxes, newest first, one block per action (and who did it).
 const utc=s=>new Date(s.replace(' ','T')+'Z');
@@ -1949,7 +2066,8 @@ function route(){
   if(t==='storage'&&!a)S.cur=null;
   if(t==='collections'&&!a)S.coll=null;
   if(t==='decks'&&!a){S.deck=null;S.deckView='mine'}
-  setTab(['find','add','storage','collections','decks','market','wishlist','honor','discounts','account','log'].includes(t)?t:'find');
+  if(t==='orders')S.order=a?+a:null;
+  setTab(['find','add','storage','collections','decks','market','wishlist','honor','discounts','account','log','orders'].includes(t)?t:'find');
 }
 window.addEventListener('hashchange',()=>{if(S.user)route();else showAuth()});  // a pasted link or Back; our own updates use replaceState
 api('/api/me').then(r=>r.user?startApp(r.user):showAuth()).catch(()=>showAuth());
