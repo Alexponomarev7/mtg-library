@@ -205,6 +205,7 @@ h3.sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--
 .deck-card .b{padding:12px 14px;min-width:0}
 .dk-add{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
 .dk-add .picker{flex:1;min-width:240px}
+.dk-add .picker.dk-set{flex:0 0 150px;min-width:0}.dk-set input,.dk-set .btn{width:100%}#dk-set-opts{width:min(340px,90vw)}.dk-set .btn{display:flex;gap:6px;align-items:center;justify-content:center}
 .dk-sec{margin:16px 0 6px;font-weight:700;display:flex;justify-content:space-between}
 .dk-row{display:grid;grid-template-columns:58px 30px 1fr 110px 70px 118px 30px;gap:10px;align-items:center;padding:5px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:4px}
 .dk-row input[type=number]{width:58px;padding:4px 6px}
@@ -1481,6 +1482,7 @@ async function openDeck(id){
 }
 function renderDeck(d){
   const el=$('#deck-detail'),st=d.stats;
+  const dkSet=S.dkSet?.deck===d.id?S.dkSet:null;
   const tile=(k,v,sub='')=>`<div class="panel tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
   const groups=['commander','main','side'].map(bd=>[bd,d.cards.filter(c=>c.board===bd)]).filter(([,cs])=>cs.length);
   el.innerHTML=`<div class="detail-head"><button class="btn" id="dk-back">← All decks</button>
@@ -1490,7 +1492,9 @@ function renderDeck(d){
       <button class="btn" id="dk-edit">Edit</button><button class="btn" id="dk-import">Paste list</button><button class="btn" id="dk-export">Copy list</button><button class="btn danger" id="dk-del">Delete</button></div>
     <div class="tiles">${tile('Cards',st.cards,st.cards!==st.main?`${st.main} + ${st.cards-st.main} sideboard`:'')}${tile('Value',eur(st.value),'Cardmarket trend')}
       ${d.physical?tile('In its box',`${st.in_box} / ${st.cards}`,st.in_box<st.cards?'some cards are elsewhere':'complete'):tile('You own',`${st.owned} / ${st.cards}`,'any printing, any set')}${tile('Missing',eur(st.missing_cost),`${st.cards-st.owned} card${st.cards-st.owned===1?'':'s'} to buy`)}</div>
-    <div class="dk-add"><div class="picker"><input id="dk-q" placeholder="Add a card: name, or “blb 12”" autocomplete="off"><ul id="dk-opts" hidden></ul></div>
+    <div class="dk-add"><div class="picker dk-set">${dkSet?`<button class="btn" id="dk-set-x" title="Search every set again"><img class="seticon" src="${esc(dkSet.icon||'')}" alt="">${esc(dkSet.code.toUpperCase())} ✕</button>`
+        :'<input id="dk-set" placeholder="Any set" autocomplete="off" title="Only cards from one set"><ul id="dk-set-opts" hidden></ul>'}</div>
+      <div class="picker"><input id="dk-q" placeholder="${dkSet?`Add from ${esc(dkSet.name)}: name or number, “4 Plains”`:'Add a card: “Lightning Bolt”, “4 Lightning Bolt” or “blb 12”'}" autocomplete="off"><ul id="dk-opts" hidden></ul></div>
       <select id="dk-board">${Object.entries(BOARD_NAME).map(([k,v])=>`<option value="${k}" ${k==='main'?'selected':''}>${v}</option>`).join('')}</select></div>
     ${groups.length?groups.map(([bd,cs])=>`<div class="dk-sec"><span>${BOARD_NAME[bd]} (${cs.reduce((a,c)=>a+c.qty,0)})</span><span class="money small">${eur(cs.reduce((a,c)=>a+(c.price||0)*c.qty,0))}</span></div>
       ${cs.map(c=>`<div class="dk-row" data-dc="${c.id}"><input type="number" min="0" value="${c.qty}" data-qty title="0 removes it">
@@ -1537,12 +1541,22 @@ function renderDeck(d){
   $('#dk-export').onclick=async()=>{
     const txt=groups.map(([bd,cs])=>(bd==='main'?'':BOARD_NAME[bd]+'\n')+cs.map(c=>`${c.qty} ${c.name} (${c.set_code.toUpperCase()}) ${c.collector_number}${c.foil?' *F*':''}`).join('\n')).join('\n\n');
     try{await navigator.clipboard.writeText(txt);toast('Decklist copied')}catch(e){deckDialog(`<h3>Decklist</h3><textarea rows="14" style="width:100%">${esc(txt)}</textarea><div class="dlg-foot"><button class="btn" data-close>Close</button></div>`)}};
+  // set to add from: kept while this deck is open, so a bought deck's cards come from its set
+  if(dkSet)$('#dk-set-x').onclick=()=>{S.dkSet=null;renderDeck(d);$('#dk-set').focus()};
+  else{const si=$('#dk-set'),sl=$('#dk-set-opts');let sets=[],sa=0;
+    const sdraw=()=>{sl.hidden=!sets.length;sl.innerHTML=sets.map((x,i)=>`<li class="${i===sa?'act':''}" data-i="${i}"><img class="seticon" src="${esc(x.icon||'')}" alt=""><span><b>${esc(x.name)}</b> <span class="muted small">${x.code.toUpperCase()} · ${esc((x.released_at||'').slice(0,4))}</span></span></li>`).join('')};
+    const spick=x=>{S.dkSet={deck:d.id,code:x.code,name:x.name,icon:x.icon};renderDeck(d);$('#dk-q').focus()};
+    si.addEventListener('input',debounce(async()=>{const q=si.value.trim();if(!q){sets=[];return sdraw()}try{const minor=x=>['token','promo','memorabilia','minigame','vanguard'].includes(x.set_type);sets=(await api('/api/sets?q='+encodeURIComponent(q))).sort((a,b)=>minor(a)-minor(b)).slice(0,12);sa=0;sdraw()}catch(e){toast(e.message,'err')}},200));
+    si.addEventListener('keydown',e=>{if(sl.hidden)return;if(e.key==='ArrowDown'){sa=Math.min(sa+1,sets.length-1);sdraw();e.preventDefault()}else if(e.key==='ArrowUp'){sa=Math.max(sa-1,0);sdraw();e.preventDefault()}else if(e.key==='Enter'&&sets[sa])spick(sets[sa]);else if(e.key==='Escape')sl.hidden=true});
+    sl.addEventListener('mousedown',e=>{const li=e.target.closest('li');if(li){e.preventDefault();spick(sets[+li.dataset.i])}});
+    si.addEventListener('blur',()=>setTimeout(()=>sl.hidden=true,150))}
   // add-card search
   const inp=$('#dk-q'),ul=$('#dk-opts');let list=[],act=0,seq=0;
-  const draw=()=>{ul.hidden=!list.length;ul.innerHTML=list.map((c,i)=>`<li class="${i===act?'act':''}" data-i="${i}"><img src="${esc(c.image)}" alt="" style="width:26px;border-radius:2px"><span><b>${esc(c.name)}</b> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${eur(c.price??c.price_foil)}</span></span></li>`).join('')};
-  const add=c=>{ul.hidden=true;inp.value='';list=[];call(api(`/api/decks/${d.id}/cards`,{method:'POST',body:{card_id:c.id,board:$('#dk-board').value}}),'Added '+c.name).then(()=>$('#dk-q')&&$('#dk-q').focus())};
-  inp.addEventListener('input',debounce(async()=>{const q=inp.value.trim(),my=++seq;if(q.length<2){list=[];return draw()}
-    try{const r=await api('/api/cards/search?q='+encodeURIComponent(q));if(my!==seq)return;list=r.slice(0,12);act=0;draw()}catch(e){toast(e.message,'err')}},300));
+  const draw=()=>{ul.hidden=!list.length;ul.innerHTML=list.map((c,i)=>`<li class="${i===act?'act':''}" data-i="${i}"><img src="${esc(c.image)}" alt="" style="width:26px;border-radius:2px"><span><b>${esc(c.name)}</b> <span class="muted small">${esc(c.set_code.toUpperCase())} #${esc(c.collector_number)} · ${eur(c.price??c.price_foil)}${c.owned?` · <span class="have">you have ${c.owned}</span>`:''}</span></span></li>`).join('')};
+  const parse=()=>{const m=inp.value.trim().match(/^(\d{1,2})\s*x?\s+(\D.*)$/i);return m?{n:+m[1],q:m[2].trim()}:{n:1,q:inp.value.trim()}};
+  const add=c=>{const n=parse().n;ul.hidden=true;inp.value='';list=[];call(api(`/api/decks/${d.id}/cards`,{method:'POST',body:{card_id:c.id,qty:n,board:$('#dk-board').value}}),`Added ${n>1?n+' × ':''}${c.name}`).then(()=>$('#dk-q')&&$('#dk-q').focus())};
+  inp.addEventListener('input',debounce(async()=>{const q=parse().q,my=++seq;if(q.length<2){list=[];return draw()}
+    try{const r=await api('/api/cards/names?q='+encodeURIComponent(q)+(dkSet?'&set='+dkSet.code:''));if(my!==seq)return;list=r.slice(0,12);act=0;draw()}catch(e){toast(e.message,'err')}},300));
   inp.addEventListener('keydown',e=>{if(ul.hidden)return;if(e.key==='ArrowDown'){act=Math.min(act+1,list.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){act=Math.max(act-1,0);draw();e.preventDefault()}else if(e.key==='Enter'&&list[act]){add(list[act])}else if(e.key==='Escape')ul.hidden=true});
   ul.addEventListener('mousedown',e=>{const li=e.target.closest('li');if(li){e.preventDefault();add(list[+li.dataset.i])}});
   inp.addEventListener('blur',()=>setTimeout(()=>ul.hidden=true,150));

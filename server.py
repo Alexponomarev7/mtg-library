@@ -989,6 +989,31 @@ def r_card_search(db, q, b):
     return out
 
 
+@route("GET", "/api/cards/names")
+def r_card_names(db, q, b):
+    """Search for a deck: one row per card name, not per printing. The printing is the one you own most of,
+    else the cheapest paper one. A number in the query ("blb 12") or a chosen set asks for printings instead."""
+    text = (q.get("q") or "").strip()
+    if not text or re.search(r"\d", text) or q.get("set"):  # a set chosen: its printings
+        return r_card_search(db, q, b)
+    data = sf_get("/cards/search", {"q": text + " game:paper prefer:eur-low", "unique": "cards", "order": "name"})
+    cards = [c for c in (data or {}).get("data", []) if not c.get("digital")]
+    low = text.lower()
+    cards.sort(key=lambda c: (c["name"].lower() != low, not c["name"].lower().startswith(low)))  # exact, then prefix
+    cards = cards[:12]
+    save_cards(db, cards)
+    ensure_sets(db)
+    out = []
+    for c in cards:
+        mine = db.execute("""SELECT i.card_id, SUM(i.qty) FROM items i JOIN cards c ON c.id=i.card_id WHERE c.name=?
+                             GROUP BY i.card_id ORDER BY 2 DESC LIMIT 1""", (c["name"],)).fetchone()
+        d = card_view(db, mine[0] if mine else c["id"])
+        d["owned"] = db.execute("SELECT COALESCE(SUM(i.qty),0) FROM items i JOIN cards c ON c.id=i.card_id "
+                                "WHERE c.name=?", (c["name"],)).fetchone()[0]
+        out.append(d)
+    return out
+
+
 @route("POST", "/api/suggest")
 def r_suggest(db, q, b):
     return suggest(db, b.get("card_id"))
